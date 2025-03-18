@@ -53,7 +53,11 @@ import org.apache.synapse.transport.passthru.PassThroughConstants;
 import org.apache.synapse.transport.passthru.Pipe;
 import org.wso2.carbon.apimgt.api.APIManagementException;
 import org.wso2.carbon.apimgt.api.ExceptionCodes;
+import org.wso2.carbon.apimgt.api.gateway.FailoverPolicyConfigDTO;
+import org.wso2.carbon.apimgt.api.gateway.FailoverPolicyDeploymentConfigDTO;
 import org.wso2.carbon.apimgt.api.gateway.GatewayAPIDTO;
+import org.wso2.carbon.apimgt.api.gateway.ModelEndpointDTO;
+import org.wso2.carbon.apimgt.api.gateway.RBPolicyConfigDTO;
 import org.wso2.carbon.apimgt.common.gateway.constants.JWTConstants;
 import org.wso2.carbon.apimgt.common.gateway.dto.JWTInfoDto;
 import org.wso2.carbon.apimgt.common.gateway.dto.JWTValidationInfo;
@@ -796,6 +800,7 @@ public class GatewayUtils {
         APIKeyValidator apiKeyValidator = new APIKeyValidator();
         APIKeyValidationInfoDTO apiKeyValidationInfoDTO = null;
         JSONObject application;
+        String keyType = (String) payload.getClaim(APIConstants.JwtTokenConstants.KEY_TYPE);
         int appId = 0;
         if (payload.getClaim(APIConstants.JwtTokenConstants.APPLICATION) != null) {
             try {
@@ -813,7 +818,7 @@ public class GatewayUtils {
         // if the appId is equal to 0 then it's a internal key
         if (appId != 0) {
             apiKeyValidationInfoDTO =
-                    apiKeyValidator.validateSubscription(apiContext, apiVersion, appId, getTenantDomain());
+                    apiKeyValidator.validateSubscription(apiContext, apiVersion, appId, getTenantDomain(), keyType);
         }
 
         if (payload.getClaim(APIConstants.JwtTokenConstants.SUBSCRIBED_APIS) != null) {
@@ -887,6 +892,7 @@ public class GatewayUtils {
 
         APIKeyValidator apiKeyValidator = new APIKeyValidator();
         APIKeyValidationInfoDTO apiKeyValidationInfoDTO = null;
+        String keyType = (String) payload.getClaim(APIConstants.JwtTokenConstants.KEY_TYPE);
         int appId = 0;
         if (payload.getClaim(APIConstants.JwtTokenConstants.APPLICATION) != null) {
             try {
@@ -904,13 +910,12 @@ public class GatewayUtils {
         // if the appId is equal to 0 then it's a internal key
         if (appId != 0) {
             apiKeyValidationInfoDTO =
-                    apiKeyValidator.validateSubscription(apiContext, apiVersion, appId, getTenantDomain());
+                    apiKeyValidator.validateSubscription(apiContext, apiVersion, appId, getTenantDomain(), keyType);
             if (apiKeyValidationInfoDTO.isAuthorized()) {
                 if (log.isDebugEnabled()) {
                     log.debug("User is subscribed to the API: " + apiContext + ", " +
                             "version: " + apiVersion + ". Token: " + getMaskedToken(token));
                 }
-                String keyType = (String) payload.getClaim(APIConstants.JwtTokenConstants.KEY_TYPE);
                 apiKeyValidationInfoDTO.setType(keyType);
             } else {
                 if (log.isDebugEnabled()) {
@@ -1744,5 +1749,95 @@ public class GatewayUtils {
         path = path.split("\\?")[0];
         return ServiceReferenceHolder.getInstance().getAPIManagerConfiguration()
                 .getGatewayArtifactSynchronizerProperties().getFileBasedApiContexts().contains(path);
+    }
+
+    /**
+     * Retrieves the appropriate failover policy configuration (Production/Sandbox).
+     * If no valid configuration is found, logs a debug message and returns null.
+     *
+     * @param messageContext The Synapse {@link MessageContext}.
+     * @param policyConfig   The failover policy configuration DTO.
+     * @return The appropriate {@link FailoverPolicyDeploymentConfigDTO}, or null if invalid.
+     */
+    public static FailoverPolicyDeploymentConfigDTO getTargetConfig(org.apache.synapse.MessageContext messageContext,
+                                                                    FailoverPolicyConfigDTO policyConfig) {
+
+        if (policyConfig == null) {
+            return null;
+        }
+
+        String apiKeyType = (String) messageContext.getProperty(APIConstants.API_KEY_TYPE);
+        FailoverPolicyDeploymentConfigDTO targetConfig = APIConstants.API_KEY_TYPE_PRODUCTION.equals(apiKeyType)
+                ? policyConfig.getProduction()
+                : policyConfig.getSandbox();
+
+        if (targetConfig == null || targetConfig.getFallbackModelEndpoints() == null
+                || targetConfig.getFallbackModelEndpoints().isEmpty()) {
+            if (log.isDebugEnabled()) {
+                log.debug("Failover policy is not set");
+            }
+            return null;
+        }
+        return targetConfig;
+    }
+
+    /**
+     * Retrieves available endpoints for the given policy configuration.
+     *
+     * @param selectedEndpoints List of ModelEndpointDTO containing endpoint configurations.
+     * @param messageContext    Synapse message context.
+     * @return The selected ModelEndpointDTO list, or null if no active endpoints are available.
+     */
+    public static List<ModelEndpointDTO> filterActiveEndpoints(List<ModelEndpointDTO> selectedEndpoints,
+                                                               org.apache.synapse.MessageContext messageContext) {
+
+        if (selectedEndpoints == null || selectedEndpoints.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        List<ModelEndpointDTO> activeEndpoints = new ArrayList<>();
+        for (ModelEndpointDTO endpoint : selectedEndpoints) {
+            if (!DataHolder.getInstance().isEndpointSuspended(getAPIKeyForEndpoints(messageContext),
+                    getEndpointKey(endpoint))) {
+                activeEndpoints.add(endpoint);
+            }
+        }
+        return activeEndpoints;
+    }
+
+    /**
+     * Generates an API key based on the tenant domain and API name and API version.
+     *
+     * @param messageContext The Synapse MessageContext containing the API request details.
+     * @return A string representing the API key, which is a combination of the tenant domain and API name and API
+     * version.
+     */
+    public static String getAPIKeyForEndpoints(org.apache.synapse.MessageContext messageContext) {
+
+        String tenantDomain = GatewayUtils.getTenantDomain();
+        String apiName = (String) messageContext.getProperty(APIMgtGatewayConstants.API);
+        String apiVersion = (String) messageContext.getProperty(APIMgtGatewayConstants.VERSION);
+
+        return tenantDomain + "_" + apiName + "_" + apiVersion;
+    }
+
+    /**
+     * Generates a unique key for an endpoint based on the endpoint's ID and model.
+     *
+     * @param endpoint The ModelEndpointDTO object containing the endpoint details.
+     * @return A unique key in the format "{endpointId}_{model}".
+     */
+    public static String getEndpointKey(ModelEndpointDTO endpoint) {
+
+        if (endpoint == null) {
+            throw new IllegalArgumentException("ModelEndpointDTO cannot be null");
+        }
+        if (StringUtils.isEmpty(endpoint.getEndpointId())) {
+            throw new IllegalArgumentException("Endpoint ID cannot be null or empty");
+        }
+        if (StringUtils.isEmpty(endpoint.getModel())) {
+            throw new IllegalArgumentException("Endpoint model cannot be null or empty");
+        }
+        return endpoint.getEndpointId() + "_" + endpoint.getModel();
     }
 }

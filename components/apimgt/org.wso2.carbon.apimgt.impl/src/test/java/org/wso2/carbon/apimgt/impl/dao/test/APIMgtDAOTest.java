@@ -824,7 +824,7 @@ public class APIMgtDAOTest {
         api.setContextTemplate("/getAPIGatewayVendorByApiUUID/{version}");
         String apiUUID = UUID.randomUUID().toString();
         api.setUUID(apiUUID);
-        api.setGatewayVendor("testGatewayVendor");
+        api.setGatewayType("testGatewayVendor");
         apiMgtDAO.addAPI(api, -1234, "testOrg");
         String gatewayVendor = apiMgtDAO
                 .getGatewayVendorByAPIUUID(apiUUID);
@@ -843,11 +843,11 @@ public class APIMgtDAOTest {
         String apiUUID = UUID.randomUUID().toString();
         api.setUUID(apiUUID);
         api.setGatewayVendor("wso2");
-        api.setGatewayType("wso2/choreo-connect");
+        api.setGatewayType("APK");
         apiMgtDAO.addAPI(api, -1234, "testOrg");
         String gatewayVendor = apiMgtDAO.getGatewayVendorByAPIUUID(apiUUID);
         assertNotNull(gatewayVendor);
-        assertTrue(gatewayVendor.equals("wso2"));
+        assertTrue(gatewayVendor.equals("APK"));
         apiMgtDAO.deleteAPI(api.getUuid());
     }
 
@@ -1818,12 +1818,13 @@ public class APIMgtDAOTest {
     }
 
     /**
-     * Test for getAPIRevisionDeploymentsByWorkflowStatusAndApiUUID method
-     * Checks whether the API revision deployment mapping details are retrieved correctly
+     * Test for testGetAndUpdateAPIRevisionDeploymentsByWorkflowStatusAndApiUUID method
+     * Checks whether the API revision deployment mapping details are retrieved correctly and
+     * Checks whether the API revision deployment status is updated correctly
      * @throws APIManagementException if an error occurs while retrieving revision deployment mapping details
      */
     @Test
-    public void testGetAPIRevisionDeploymentsByWorkflowStatusAndApiUUID() throws Exception {
+    public void testGetAndUpdateAPIRevisionDeploymentsByWorkflowStatusAndApiUUID() throws Exception {
         String workflowStatus = "CREATED";
         String apiUUID = "7af95c9d-6177-4191-ab3e-d3f6c1cdc4c2";
         String revisionUUID = "821b9664-eeca-4173-9f56-3dc6d46bd6eb";
@@ -1836,24 +1837,14 @@ public class APIMgtDAOTest {
         Assert.assertNotNull(apiRevisionDeployment);
         Assert.assertEquals(apiRevisionDeployment.getDeployment(), deployment);
         Assert.assertEquals(apiRevisionDeployment.getRevisionUUID(), revisionUUID);
-    }
 
-    /**
-     * Test for updateAPIRevisionDeploymentStatus method
-     * Checks whether the API revision deployment status is updated correctly
-     * @throws APIManagementException if an error occurs while updating revision deployment status
-     */
-    @Test public void testUpdateAPIRevisionDeploymentStatus() throws Exception {
-        String workflowStatus = "APPROVED";
-        String revisionUUID = "821b9664-eeca-4173-9f56-3dc6d46bd6eb";
-        String apiId = "7af95c9d-6177-4191-ab3e-d3f6c1cdc4c2";
-        String deployment = "default";
-        apiMgtDAO.updateAPIRevisionDeploymentStatus(revisionUUID, workflowStatus, deployment);
-        List<APIRevisionDeployment> apiRevisionDeployments = apiMgtDAO.getAPIRevisionDeploymentByApiUUID(apiId);
-        Assert.assertNotNull(apiRevisionDeployments);
-        APIRevisionDeployment apiRevisionDeployment = apiRevisionDeployments.get(0);
-        Assert.assertNotNull(apiRevisionDeployment);
-        Assert.assertEquals(org.wso2.carbon.apimgt.api.WorkflowStatus.APPROVED,apiRevisionDeployment.getStatus());
+        String workflowStatus2 = "APPROVED";
+        apiMgtDAO.updateAPIRevisionDeploymentStatus(revisionUUID, workflowStatus2, deployment);
+        List<APIRevisionDeployment> apiRevisionDeployments2 = apiMgtDAO.getAPIRevisionDeploymentByApiUUID(apiUUID);
+        Assert.assertNotNull(apiRevisionDeployments2);
+        APIRevisionDeployment apiRevisionDeployment2 = apiRevisionDeployments2.get(0);
+        Assert.assertNotNull(apiRevisionDeployment2);
+        Assert.assertEquals(org.wso2.carbon.apimgt.api.WorkflowStatus.APPROVED,apiRevisionDeployment2.getStatus());
     }
 
     @Test
