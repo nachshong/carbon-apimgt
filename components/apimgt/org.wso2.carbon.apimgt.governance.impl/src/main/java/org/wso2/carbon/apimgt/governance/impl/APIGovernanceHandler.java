@@ -42,6 +42,8 @@ import org.wso2.carbon.apimgt.impl.dao.ApiMgtDAO;
 import org.wso2.carbon.apimgt.impl.dao.LabelsDAO;
 import org.wso2.carbon.apimgt.impl.importexport.APIImportExportException;
 import org.wso2.carbon.apimgt.impl.importexport.ExportFormat;
+import org.wso2.carbon.apimgt.rest.api.common.RestApiCommonUtil;
+import org.wso2.carbon.apimgt.rest.api.publisher.v1.common.mappings.APIDTOTypeWrapper;
 import org.wso2.carbon.apimgt.rest.api.publisher.v1.common.mappings.APIMappingUtil;
 import org.wso2.carbon.apimgt.rest.api.publisher.v1.common.mappings.ExportUtils;
 import org.wso2.carbon.apimgt.rest.api.publisher.v1.dto.APIDTO;
@@ -216,6 +218,10 @@ public class APIGovernanceHandler implements ArtifactGovernanceHandler {
             throws APIMGovernanceException {
 
         String lcStatus = getAPIStatus(apiId);
+        // If the lifecycle status is null or empty, return false
+        if (!APIStatus.contains(lcStatus)) {
+            return false;
+        }
         boolean isDeployed = isAPIDeployed(apiId);
 
         // If API is in any state we need to run created and update policies
@@ -338,9 +344,8 @@ public class APIGovernanceHandler implements ArtifactGovernanceHandler {
     @Override
     public String getOwner(String apiId, String organization) throws APIMGovernanceException {
         try {
-            APIIdentifier apiIdentifier = APIMappingUtil.getAPIIdentifierFromUUID(apiId);
             APIProvider apiProvider = APIManagerFactory.getInstance()
-                    .getAPIProvider(apiIdentifier.getProviderName());
+                    .getAPIProvider(RestApiCommonUtil.getLoggedInUsername());
             API api = apiProvider.getAPIbyUUID(apiId, organization);
             String techOwner = api.getTechnicalOwnerEmail();
             String apiOwner = api.getApiOwner();
@@ -407,9 +412,10 @@ public class APIGovernanceHandler implements ArtifactGovernanceHandler {
             throws APIMGovernanceException {
         synchronized (apiId.intern()) {
             try {
+                String tenantAdminUsername = RestApiCommonUtil.getLoggedInUsername();
                 APIIdentifier apiIdentifier = APIMappingUtil.getAPIIdentifierFromUUID(apiId);
                 String userName = apiIdentifier.getProviderName();
-                APIProvider apiProvider = APIManagerFactory.getInstance().getAPIProvider(userName);
+                APIProvider apiProvider = APIManagerFactory.getInstance().getAPIProvider(tenantAdminUsername);
                 if (revisionId != null) {
                     apiId = revisionId;
                 }
@@ -418,8 +424,8 @@ public class APIGovernanceHandler implements ArtifactGovernanceHandler {
                 api.setUuid(apiId);
                 apiIdentifier.setUuid(apiId);
                 APIDTO apiDtoToReturn = APIMappingUtil.fromAPItoDTO(api, true, apiProvider);
-                File apiProject = ExportUtils.exportApi(
-                        apiProvider, apiIdentifier, apiDtoToReturn, api, userName,
+                File apiProject = ExportUtils.exportAPI(
+                        apiProvider, apiIdentifier, new APIDTOTypeWrapper(apiDtoToReturn), api, userName,
                         ExportFormat.YAML, true, true, StringUtils.EMPTY, organization, false
                 ); // returns zip file
                 return Files.readAllBytes(apiProject.toPath());

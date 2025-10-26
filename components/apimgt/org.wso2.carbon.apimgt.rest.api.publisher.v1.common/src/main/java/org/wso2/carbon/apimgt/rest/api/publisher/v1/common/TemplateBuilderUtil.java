@@ -44,6 +44,7 @@ import org.wso2.carbon.apimgt.api.gateway.CredentialDto;
 import org.wso2.carbon.apimgt.api.gateway.GatewayAPIDTO;
 import org.wso2.carbon.apimgt.api.gateway.GatewayContentDTO;
 import org.wso2.carbon.apimgt.api.model.API;
+import org.wso2.carbon.apimgt.api.model.APIOperationMapping;
 import org.wso2.carbon.apimgt.api.model.APIProduct;
 import org.wso2.carbon.apimgt.api.model.APIProductIdentifier;
 import org.wso2.carbon.apimgt.api.model.APIProductResource;
@@ -57,8 +58,6 @@ import org.wso2.carbon.apimgt.common.gateway.graphql.GraphQLSchemaDefinitionUtil
 import org.wso2.carbon.apimgt.impl.APIConstants;
 import org.wso2.carbon.apimgt.impl.certificatemgt.exceptions.CertificateManagementException;
 import org.wso2.carbon.apimgt.impl.dao.ApiMgtDAO;
-import org.wso2.carbon.apimgt.impl.definitions.GraphQLSchemaDefinition;
-import org.wso2.carbon.apimgt.impl.definitions.OASParserUtil;
 import org.wso2.carbon.apimgt.impl.dto.SoapToRestMediationDto;
 import org.wso2.carbon.apimgt.impl.importexport.ImportExportConstants;
 import org.wso2.carbon.apimgt.impl.template.APITemplateBuilder;
@@ -73,6 +72,8 @@ import org.wso2.carbon.apimgt.rest.api.publisher.v1.common.template.APITemplateB
 import org.wso2.carbon.apimgt.rest.api.publisher.v1.dto.APIDTO;
 import org.wso2.carbon.apimgt.rest.api.publisher.v1.dto.APIOperationsDTO;
 import org.wso2.carbon.apimgt.rest.api.publisher.v1.dto.MediationPolicyDTO;
+import org.wso2.carbon.apimgt.spec.parser.definitions.GraphQLSchemaDefinition;
+import org.wso2.carbon.apimgt.spec.parser.definitions.OASParserUtil;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
@@ -101,6 +102,7 @@ public class TemplateBuilderUtil {
 
     private static final String ENDPOINT_PRODUCTION = "_PRODUCTION_";
     private static final String ENDPOINT_SANDBOX = "_SANDBOX_";
+    private static final String MCP_BACKEND_API_GATEWAY_URL = "https://localhost:{uri.var.httpsPort}";
 
     private static final Log log = LogFactory.getLog(TemplateBuilderUtil.class);
 
@@ -237,6 +239,11 @@ public class TemplateBuilderUtil {
         authProperties.put(APIConstants.AUDIENCES, audiences);
         authProperties.put(APIConstants.API_SECURITY, apiSecurity);
         authProperties.put(APIConstants.API_LEVEL_POLICY, apiLevelPolicy);
+        authProperties.put(APIConstants.API_TYPE, api.getType());
+
+        String subType = api.getSubtype() != null ? api.getSubtype() : APIConstants.API_SUBTYPE_DEFAULT;
+        authProperties.put(APIConstants.SUB_TYPE, subType);
+
         if (!clientCertificateObject.isEmpty()) {
             authProperties.put(APIConstants.CERTIFICATE_INFORMATION, clientCertificateObject.toString());
         }
@@ -271,6 +278,10 @@ public class TemplateBuilderUtil {
             vtb.addHandler("org.wso2.carbon.apimgt.gateway.handlers.streaming.sse.SseApiHandler",
                     authProperties);
         } else if (!(APIConstants.APITransportType.WS.toString().equals(api.getType()))) {
+            if (APIConstants.API_TYPE_MCP.equals(api.getType())) {
+                vtb.addHandler("org.wso2.carbon.apimgt.gateway.handlers.mcp.McpInitHandler",
+                        Collections.emptyMap());
+            }
             vtb.addHandler("org.wso2.carbon.apimgt.gateway.handlers.security.APIAuthenticationHandler",
                     authProperties);
         }
@@ -352,6 +363,11 @@ public class TemplateBuilderUtil {
                 vtb.addHandler("org.wso2.carbon.apimgt.gateway.handlers.ext.APIManagerExtensionHandler",
                         Collections.emptyMap());
             }
+        }
+
+        if (APIConstants.APITransportType.WS.toString().equals(api.getType())) {
+            vtb.addHandler("org.wso2.carbon.apimgt.gateway.handlers.ext.WebSocketExtensionHandler",
+                    Collections.emptyMap());
         }
 
         return vtb;
@@ -701,7 +717,52 @@ public class TemplateBuilderUtil {
                     }
                 }
             }
+
+            //reset uri-templates of MCP Servers to default resources
+            if (APIConstants.API_TYPE_MCP.equalsIgnoreCase(api.getType())) {
+                if (APIConstants.API_SUBTYPE_EXISTING_API.equals(api.getSubtype())) {
+                    Set<URITemplate> mcpToolTemplates = api.getUriTemplates();
+                    if (!mcpToolTemplates.isEmpty()) {
+                        URITemplate tool = (URITemplate) (mcpToolTemplates.toArray())[0];
+                        APIOperationMapping apiOperationMapping = tool.getAPIOperationMapping();
+
+                        //set apiOperationMapping info to the mcp default resources
+                        for (URITemplate uriTemplate : uriTemplates) {
+                            uriTemplate.setAPIOperationMapping(apiOperationMapping);
+                        }
+                    }
+
+                    // construct gw URL for reference API using the localhost gw HTTPS port and apiContext
+                    // Here we assume that the MCP backend API always supports https at GW level
+                    StringBuilder endpoint = new StringBuilder();
+                    endpoint.append(MCP_BACKEND_API_GATEWAY_URL);
+                    Set<URITemplate> uriTemplateSet = api.getUriTemplates();
+                    if (!uriTemplateSet.isEmpty()) {
+                        URITemplate tempUri = uriTemplateSet.iterator().next();
+                        APIOperationMapping apiOperationMapping = tempUri.getAPIOperationMapping();
+                        if (apiOperationMapping != null) {
+                            String refApiContext = apiOperationMapping.getApiContext();
+                            endpoint.append(refApiContext);
+                        }
+                    }
+
+                    if (log.isDebugEnabled()) {
+                        log.debug("Constructed endpoint url for MCP reference API: " + endpoint.toString());
+                    }
+
+                    JsonObject urlObj = new JsonObject();
+                    urlObj.addProperty("url", endpoint.toString());
+                    JsonObject endpointConfig = new JsonObject();
+                    endpointConfig.addProperty(APIConstants.API_ENDPOINT_CONFIG_PROTOCOL_TYPE, "http");
+                    endpointConfig.add(APIConstants.APIEndpoint.ENDPOINT_CONFIG_SANDBOX_ENDPOINTS, urlObj);
+                    endpointConfig.add(APIConstants.APIEndpoint.ENDPOINT_CONFIG_PRODUCTION_ENDPOINTS, urlObj);
+
+                    api.setEndpointConfig(endpointConfig.toString());
+                }
+                api.setUriTemplates(uriTemplates);
+            }
         }
+
         return retrieveGatewayAPIDto(api, environment, tenantDomain, apidto, extractedFolderPath);
     }
 
@@ -714,7 +775,7 @@ public class TemplateBuilderUtil {
     }
 
     public static GatewayAPIDTO retrieveGatewayAPIDto(APIProduct apiProduct, Environment environment,
-                                                      String tenantDomain, String extractedFolderPath)
+            String tenantDomain, String extractedFolderPath, String apiDefinition)
             throws APIManagementException, XMLStreamException, APITemplateException {
 
         List<ClientCertificateDTO> clientCertificatesDTOListProduction =
@@ -723,12 +784,29 @@ public class TemplateBuilderUtil {
                 ImportUtils.retrieveClientCertificates(extractedFolderPath, APIConstants.API_KEY_TYPE_SANDBOX);
         Map<String, APIDTO> apidtoMap = retrieveAssociatedApis(extractedFolderPath);
         Map<String, APIDTO> associatedAPIsMap = convertAPIIdToDto(apidtoMap.values());
+        APIDefinition parser = OASParserUtil.getOASParser(apiDefinition);
+        Set<URITemplate> uriTemplates = Collections.emptySet();
+        if (parser != null) {
+            uriTemplates = parser.getURITemplates(apiDefinition);
+        }
         for (APIProductResource productResource : apiProduct.getProductResources()) {
             String apiId = productResource.getApiId();
             APIDTO apidto = associatedAPIsMap.get(apiId);
             if (apidto != null) {
                 API api = APIMappingUtil.fromDTOtoAPI(apidto, apidto.getProvider());
                 productResource.setApiIdentifier(api.getId());
+                if (APIConstants.IMPLEMENTATION_TYPE_INLINE.equalsIgnoreCase(api.getImplementation())) {
+                    for (URITemplate uriTemplate : uriTemplates) {
+                        URITemplate template = productResource.getUriTemplate();
+                        if (template.getHTTPVerb()
+                                .equalsIgnoreCase(uriTemplate.getHTTPVerb()) && template.getUriTemplate()
+                                .equals(uriTemplate.getUriTemplate())) {
+                            template.setMediationScript(uriTemplate.getMediationScript());
+                            template.setMediationScripts(uriTemplate.getHTTPVerb(), uriTemplate.getMediationScript());
+                            break;
+                        }
+                    }
+                }
                 if (api.isAdvertiseOnly()) {
                     productResource.setEndpointConfig(APIUtil.generateEndpointConfigForAdvertiseOnlyApi(api));
                 } else {
@@ -779,6 +857,8 @@ public class TemplateBuilderUtil {
         productAPIDto.setVersion(id.getVersion());
         productAPIDto.setTenantDomain(tenantDomain);
         productAPIDto.setKeyManagers(Collections.singletonList(APIConstants.KeyManager.API_LEVEL_ALL_KEY_MANAGERS));
+        productAPIDto.setAdditionalProperties(toStringMap(apiProduct.getAdditionalProperties()));
+        productAPIDto.setVhosts(environment.getVhosts());
         String definition = apiProduct.getDefinition();
         productAPIDto.setLocalEntriesToBeRemove(GatewayUtils.addStringToList(apiProduct.getUuid(),
                 productAPIDto.getLocalEntriesToBeRemove()));
@@ -802,8 +882,9 @@ public class TemplateBuilderUtil {
             // check the endpoint type
             if (!StringUtils.isEmpty(api.getEndpointConfig())) {
                 JsonObject endpointConfObj = JsonParser.parseString(api.getEndpointConfig()).getAsJsonObject();
-                if (!APIConstants.ENDPOINT_TYPE_SEQUENCE.equals(
-                        endpointConfObj.get(API_ENDPOINT_CONFIG_PROTOCOL_TYPE).getAsString())) {
+                if (!APIConstants.ENDPOINT_TYPE_SEQUENCE.equals(endpointConfObj.get(API_ENDPOINT_CONFIG_PROTOCOL_TYPE)
+                        .getAsString()) && !APIConstants.IMPLEMENTATION_TYPE_INLINE.equalsIgnoreCase(
+                        api.getImplementation())) {
                     addEndpoints(api, apiTemplateBuilder, productAPIDto, null);
                 }
             } else {
@@ -890,6 +971,8 @@ public class TemplateBuilderUtil {
         gatewayAPIDTO.setApiContext(api.getContext());
         gatewayAPIDTO.setTenantDomain(tenantDomain);
         gatewayAPIDTO.setKeyManagers(api.getKeyManagers());
+        gatewayAPIDTO.setAdditionalProperties(toStringMap(api.getAdditionalProperties()));
+        gatewayAPIDTO.setVhosts(environment.getVhosts());
 
         String definition;
         boolean isGraphQLSubscriptionAPI = false;
@@ -978,8 +1061,12 @@ public class TemplateBuilderUtil {
             return null;
         }
         GatewayUtils.setCustomSequencesToBeRemoved(api, gatewayAPIDTO);
-        setAPIFaultSequencesToBeAdded(api, gatewayAPIDTO, extractedPath, apidto);
-        setCustomSequencesToBeAdded(api, gatewayAPIDTO, extractedPath, apidto);
+        if (!APIConstants.API_TYPE_MCP.equalsIgnoreCase(api.getType())) {
+            setAPIFaultSequencesToBeAdded(api, gatewayAPIDTO, extractedPath, apidto);
+            setCustomSequencesToBeAdded(api, gatewayAPIDTO, extractedPath, apidto);
+        } else {
+            log.debug("Skipping custom/fault sequence addition for MCP Servers.");
+        }
         setClientCertificatesToBeAdded(tenantDomain, gatewayAPIDTO, productionClientCertificatesDTOList,
                 sandboxClientCertificatesDTOList);
         boolean isWsApi = APIConstants.APITransportType.WS.toString().equals(api.getType());
@@ -1040,6 +1127,25 @@ public class TemplateBuilderUtil {
         }
         setSecureVaultPropertyToBeAdded(null, api, gatewayAPIDTO);
         return gatewayAPIDTO;
+    }
+
+    /**
+     * Converts a JSONObject to a Map<String, String>.
+     *
+     * @param json the JSONObject to convert
+     * @return a map of string key-value pairs
+     */
+    private static Map<String, String> toStringMap(JSONObject json) {
+        Map<String, String> map = new HashMap<>();
+        if (json != null) {
+            for (Object keyObj : json.keySet()) {
+                String key = keyObj.toString();
+                Object valueObj = json.get(key);
+                String value = valueObj != null ? valueObj.toString() : null;
+                map.put(key, value);
+            }
+        }
+        return map;
     }
 
     private static void addEndpointsSequence(String type, List<SimplifiedEndpoint> endpoints,
@@ -1436,41 +1542,45 @@ public class TemplateBuilderUtil {
                 getAPIManagerConfiguration().getFirstProperty(APIConstants.API_SECUREVAULT_ENABLE));
 
         if (isSecureVaultEnabled) {
-            org.json.JSONObject endpointConfig = new org.json.JSONObject(api.getEndpointConfig());
+            Gson gson = new Gson();
+            JsonObject endpointConfig = gson.fromJson(api.getEndpointConfig(), JsonObject.class);
 
             if (endpointConfig.has(APIConstants.ENDPOINT_SECURITY)) {
-                org.json.JSONObject endpoints =
-                        (org.json.JSONObject) endpointConfig.get(APIConstants.ENDPOINT_SECURITY);
-                org.json.JSONObject productionEndpointSecurity = (org.json.JSONObject)
-                        endpoints.get(APIConstants.ENDPOINT_SECURITY_PRODUCTION);
-                org.json.JSONObject sandboxEndpointSecurity =
-                        (org.json.JSONObject) endpoints.get(APIConstants.ENDPOINT_SECURITY_SANDBOX);
-
-                boolean isProductionEndpointSecured = (boolean)
-                        productionEndpointSecurity.get(APIConstants.ENDPOINT_SECURITY_ENABLED);
-                boolean isSandboxEndpointSecured = (boolean)
-                        sandboxEndpointSecurity.get(APIConstants.ENDPOINT_SECURITY_ENABLED);
-                //for production endpoints
-                if (isProductionEndpointSecured) {
-                    addCredentialsToList(prefix, api, gatewayAPIDTO, productionEndpointSecurity,
+                JsonObject endpoints = endpointConfig.getAsJsonObject(APIConstants.ENDPOINT_SECURITY);
+                if (endpoints.has(APIConstants.ENDPOINT_SECURITY_PRODUCTION)) {
+                    JsonObject productionEndpointSecurity = endpoints.getAsJsonObject(
                             APIConstants.ENDPOINT_SECURITY_PRODUCTION);
-                }
-                if (isSandboxEndpointSecured) {
-                    addCredentialsToList(prefix, api, gatewayAPIDTO, sandboxEndpointSecurity,
-                            APIConstants.ENDPOINT_SECURITY_SANDBOX);
+                    boolean isProductionEndpointSecured = productionEndpointSecurity.get(
+                            APIConstants.ENDPOINT_SECURITY_ENABLED).getAsBoolean();
+                    if (isProductionEndpointSecured) {
+                        addCredentialsToList(prefix, api, gatewayAPIDTO, productionEndpointSecurity,
+                                             APIConstants.ENDPOINT_SECURITY_PRODUCTION);
+                    }
 
+                }
+                if (endpoints.has(APIConstants.ENDPOINT_SECURITY_SANDBOX)) {
+                    JsonObject sandboxEndpointSecurity = endpoints.getAsJsonObject(
+                            APIConstants.ENDPOINT_SECURITY_SANDBOX);
+                    boolean isSandboxEndpointSecured = sandboxEndpointSecurity.get(
+                            APIConstants.ENDPOINT_SECURITY_ENABLED).getAsBoolean();
+                    if (isSandboxEndpointSecured) {
+                        addCredentialsToList(prefix, api, gatewayAPIDTO, sandboxEndpointSecurity,
+                                             APIConstants.ENDPOINT_SECURITY_SANDBOX);
+                    }
                 }
             } else if (APIConstants.ENDPOINT_TYPE_AWSLAMBDA
-                    .equals(endpointConfig.get(API_ENDPOINT_CONFIG_PROTOCOL_TYPE))) {
+                    .equals(endpointConfig.get(API_ENDPOINT_CONFIG_PROTOCOL_TYPE).getAsString())) {
                 addAWSCredentialsToList(prefix, api, gatewayAPIDTO, endpointConfig);
             }
         }
     }
 
     private static void addAWSCredentialsToList(String prefix, API api, GatewayAPIDTO gatewayAPIDTO,
-                                                org.json.JSONObject endpointConfig) {
+                                                JsonObject endpointConfig) {
 
-        if (StringUtils.isNotEmpty((String) endpointConfig.get(APIConstants.AMZN_SECRET_KEY))) {
+        if (endpointConfig.has(APIConstants.AMZN_SECRET_KEY) && !endpointConfig.get(APIConstants.AMZN_SECRET_KEY)
+                .isJsonNull() && StringUtils.isNotEmpty(
+                endpointConfig.get(APIConstants.AMZN_SECRET_KEY).getAsString())) {
             CredentialDto awsSecretDto = new CredentialDto();
             if (StringUtils.isNotEmpty(prefix)) {
                 awsSecretDto.setAlias(prefix.concat("--")
@@ -1480,17 +1590,17 @@ public class TemplateBuilderUtil {
                 awsSecretDto.setAlias(GatewayUtils.retrieveAWSCredAlias(api.getId().getApiName(),
                         api.getId().getVersion(), APIConstants.ENDPOINT_TYPE_AWSLAMBDA));
             }
-            awsSecretDto.setPassword((String) endpointConfig.get(APIConstants.AMZN_SECRET_KEY));
+            awsSecretDto.setPassword(endpointConfig.get(APIConstants.AMZN_SECRET_KEY).getAsString());
             gatewayAPIDTO.setCredentialsToBeAdd(addCredentialsToList(awsSecretDto,
                     gatewayAPIDTO.getCredentialsToBeAdd()));
         }
     }
 
     private static void addCredentialsToList(String prefix, API api, GatewayAPIDTO gatewayAPIDTO,
-                                             org.json.JSONObject endpointSecurity, String type) {
+                                             JsonObject endpointSecurity, String type) {
 
-        if (APIConstants.ENDPOINT_SECURITY_TYPE_OAUTH.equalsIgnoreCase((String) endpointSecurity
-                .get(APIConstants.ENDPOINT_SECURITY_TYPE))) {
+        if (APIConstants.ENDPOINT_SECURITY_TYPE_OAUTH.equalsIgnoreCase(
+                endpointSecurity.get(APIConstants.ENDPOINT_SECURITY_TYPE).getAsString())) {
             CredentialDto clientSecretDto = new CredentialDto();
             if (StringUtils.isNotEmpty(prefix)) {
                 clientSecretDto.setAlias(prefix.concat("--").concat(GatewayUtils
@@ -1499,8 +1609,8 @@ public class TemplateBuilderUtil {
                 clientSecretDto.setAlias(GatewayUtils.retrieveOauthClientSecretAlias(api.getId().getApiName()
                         , api.getId().getVersion(), type));
             }
-            clientSecretDto.setPassword((String) endpointSecurity
-                    .get(APIConstants.ENDPOINT_SECURITY_CLIENT_SECRET));
+            clientSecretDto.setPassword(
+                    endpointSecurity.get(APIConstants.ENDPOINT_SECURITY_CLIENT_SECRET).getAsString());
             gatewayAPIDTO.setCredentialsToBeAdd(addCredentialsToList(clientSecretDto,
                     gatewayAPIDTO.getCredentialsToBeAdd()));
             if (endpointSecurity.has(APIConstants.ENDPOINT_SECURITY_PASSWORD)) {
@@ -1512,13 +1622,31 @@ public class TemplateBuilderUtil {
                     passwordDto.setAlias(GatewayUtils.retrieveOAuthPasswordAlias(api.getId().getApiName()
                             , api.getId().getVersion(), type));
                 }
-                passwordDto.setPassword((String) endpointSecurity
-                        .get(APIConstants.ENDPOINT_SECURITY_PASSWORD));
+                passwordDto.setPassword(endpointSecurity.get(APIConstants.ENDPOINT_SECURITY_PASSWORD).getAsString());
                 gatewayAPIDTO.setCredentialsToBeAdd(addCredentialsToList(passwordDto,
                         gatewayAPIDTO.getCredentialsToBeAdd()));
             }
-        } else if (APIConstants.ENDPOINT_SECURITY_TYPE_BASIC.equalsIgnoreCase((String)
-                endpointSecurity.get(APIConstants.ENDPOINT_SECURITY_TYPE))) {
+            if (endpointSecurity.has(APIConstants.PROXY_CONFIGS)) {
+                JsonObject proxyConfigs = endpointSecurity.getAsJsonObject(APIConstants.PROXY_CONFIGS);
+                if (proxyConfigs.get(APIConstants.PROXY_ENABLED).getAsBoolean()) {
+                    String proxyPassword = proxyConfigs.get(APIConstants.ENDPOINT_SECURITY_PROXY_PASSWORD)
+                            .getAsString();
+                    CredentialDto proxyPasswordDto = new CredentialDto();
+                    if (StringUtils.isNotEmpty(prefix)) {
+                        proxyPasswordDto.setAlias(prefix.concat("--").concat(GatewayUtils
+                                .retrieveOAuthProxyPasswordAlias(api.getId().getApiName(), api.getId().getVersion(),
+                                        type)));
+                    } else {
+                        proxyPasswordDto.setAlias(GatewayUtils.retrieveOAuthProxyPasswordAlias(api.getId().getApiName(),
+                                api.getId().getVersion(), type));
+                    }
+                    proxyPasswordDto.setPassword(proxyPassword);
+                    gatewayAPIDTO.setCredentialsToBeAdd(addCredentialsToList(proxyPasswordDto,
+                            gatewayAPIDTO.getCredentialsToBeAdd()));
+                }
+            }
+        } else if (APIConstants.ENDPOINT_SECURITY_TYPE_BASIC.equalsIgnoreCase(
+                endpointSecurity.get(APIConstants.ENDPOINT_SECURITY_TYPE).getAsString())) {
             CredentialDto credentialDto = new CredentialDto();
             if (StringUtils.isNotEmpty(prefix)) {
                 credentialDto.setAlias(prefix.concat("--").concat(GatewayUtils
@@ -1527,8 +1655,7 @@ public class TemplateBuilderUtil {
                 credentialDto.setAlias(GatewayUtils.retrieveBasicAuthAlias(api.getId().getApiName()
                         , api.getId().getVersion(), type));
             }
-            credentialDto.setPassword((String)
-                    endpointSecurity.get(APIConstants.ENDPOINT_SECURITY_PASSWORD));
+            credentialDto.setPassword(endpointSecurity.get(APIConstants.ENDPOINT_SECURITY_PASSWORD).getAsString());
             gatewayAPIDTO.setCredentialsToBeAdd(addCredentialsToList(credentialDto,
                     gatewayAPIDTO.getCredentialsToBeAdd()));
         }

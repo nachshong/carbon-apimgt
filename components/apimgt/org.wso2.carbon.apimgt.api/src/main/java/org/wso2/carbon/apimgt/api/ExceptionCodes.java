@@ -122,6 +122,7 @@ public enum ExceptionCodes implements ErrorHandler {
     CANNOT_CREATE_API_VERSION(900362, "New API Version cannot be created from a different provider", 409, "Initial provider of an API must be preserved in all versions of that API"),
     INTERNAL_ERROR_WHILE_UPDATING_API(900363, "Internal Server Error occurred while updating the API", 500, "Internal Server Error. '%s'"),
     ERROR_WHILE_UPDATING_MANDATORY_PROPERTIES(903010, "Error while updating required properties", 400, "Error while updating required properties."),
+    ERROR_WHILE_VALIDATING_MANDATORY_PROPERTIES(903015, "Error while validating required properties", 400, "Error while validating required properties."),
 
     //Lifecycle related codes
     API_UPDATE_FORBIDDEN_PER_LC(900380, "Insufficient permission to update the API", 403,
@@ -164,6 +165,8 @@ public enum ExceptionCodes implements ErrorHandler {
             "A Gateway Environment with %s already exists"),
     READONLY_GATEWAY_ENVIRONMENT(900508, "Gateway Environment is read only", 400,
             "A Gateway Environment with %s is read only"),
+    READ_ONLY_MODE_GATEWAY_ENVIRONMENT(900515, "Gateway environment mode is read only", 400,
+            "Cannot deploy revision in gateway environment %s with read only mode."),
     GATEWAY_ENVIRONMENT_DUPLICATE_VHOST_FOUND(900509, "Gateway Environment with duplicate virtual hosts",
             400, "A Gateway Environment cannot exists with duplicate virtual hosts"),
     READONLY_GATEWAY_ENVIRONMENT_NAME(900510, "Names of Gateway Environment cannot be changed",
@@ -174,6 +177,10 @@ public enum ExceptionCodes implements ErrorHandler {
             400, "Virtual host with provided vhost name does not exist"),
     FEDERATED_GATEWAY_VALIDATION_FAILED(900513, "API Validation Failed with Federated Gateway",
             400, "API Validation Failed with %s Gateway. %s", false),
+    GATEWAY_ENVIRONMENT_ACTIVE_DEPLOYMENTS_EXIST(900516, "Active Gateway Policy Deployments Exist", 409,
+            "Cannot delete the environment with UUID %s as active gateway policy deployment exist"),
+    GATEWAY_ENVIRONMENT_API_REVISIONS_EXIST(900515, "API Revisions Deployed to Gateway Environment Exist", 409,
+            "Cannot delete the environment with UUID %s as API revisions are deployed to it"),
 
     // Workflow related codes
     WORKFLOW_EXCEPTION(900550, "Workflow error", 500,
@@ -183,7 +190,7 @@ public enum ExceptionCodes implements ErrorHandler {
     WORKFLOW_ALREADY_COMPLETED(900552, "Workflow error", 400,
             "Workflow is already completed"),
     WORKFLOW_PENDING(900553, "Workflow exception", 409,
-            "Pending workflow task exists for the seleted API"),
+            "Pending workflow task exists for the selected API/Application"),
     WORKFLOW_INVALID_WFTYPE(900554, "Workflow error", 500, "Invalid workflow type specified"),
     WORKFLOW_INV_STORE_WFTYPE(900555, "Workflow error", 500, "Invalid workflow type for store workflows"),
     WORKFLOW_STATE_MISSING(900556, "Workflow error", 400, "Workflow status is not defined"),
@@ -442,6 +449,9 @@ public enum ExceptionCodes implements ErrorHandler {
     KEY_MANAGER_NOT_FOUND(901411, "Key Manager not Found", 404, "Key Manager not found"),
     KEY_MANAGER_NAME_EMPTY(901404,
             "Key Manager name cannot be empty", 400,"Key Manager name cannot be empty"),
+    KEY_MANAGER_UPDATE_VIOLATION(901412,
+            "Key Manager Update restricted. Certain additional fields in the Key Manager configuration cannot be modified",
+            400,"Key Manager Update restricted. Certain additional fields in the Key Manager configuration cannot be modified"),
     KEY_MANAGER_NOT_SUPPORT_OAUTH_APP_CREATION(901405, "Key Manager doesn't support generating OAuth applications", 400,
             "Key Manager doesn't support generating OAuth applications"),
     KEY_MANAGER_NOT_SUPPORTED_TOKEN_GENERATION(901405, "Key Manager doesn't support token generation", 400,
@@ -600,6 +610,8 @@ public enum ExceptionCodes implements ErrorHandler {
     AI_SERVICE_INVALID_RESPONSE(903100, "Invalid response from AI service", 500, "Error while invoking AI service. %s", false),
     AI_SERVICE_INVALID_ACCESS_TOKEN(903101, "Invalid access token provided for AI service", 401, "Invalid access token provided for AI service"),
     AI_SERVICE_QUOTA_EXCEEDED(903102, "Quota exceeded for AI service", 429, "Quota exceeded for AI service"),
+    AI_SERVICE_PROVIDER_NOT_FOUND(903103,"AI Service Provider Not found for %s in organization" ,404 ,"AI Service Provider Not found for %s in organization" ,false ),
+
     DOCUMENT_NAME_ILLEGAL_CHARACTERS(902016, "Document name cannot contain illegal characters", 400, "Document name contains one or more illegal characters"),
 
     // Compliance related errors
@@ -704,6 +716,9 @@ public enum ExceptionCodes implements ErrorHandler {
 
     RETIRED_API_REVISION_DEPLOYMENT_UNSUPPORTED(903227, "Deploying API Revisions is not supported for retired APIs",
             400, "Deploying API Revisions is not supported for retired APIs. ApiId: %s"),
+    ACTION_NOT_ALLOWED_FOR_API_INITIATED_FROM_GATEWAY(900517, "Retire action is not allowed for the API " +
+            "which is initiated from the Gateway", 400,
+            "Retire action is not allowed for the API which is initiated from the Gateway. ApiId: %s", false ),
 
     REVISION_NOT_FOUND_FOR_REVISION_NUMBER(903228, "No revision found", 404,
             "No revision found for revision number %s"),
@@ -806,7 +821,61 @@ public enum ExceptionCodes implements ErrorHandler {
             "defined as a primary endpoint", 400,
             "Failed to delete API endpoint with UUID '%s' since it is defined as a primary endpoint."),
     API_ENDPOINT_URL_INVALID(902049, "Endpoint URL is invalid", 400,
-            "Endpoint URL is invalid");
+            "Endpoint URL is invalid"),
+    INVALID_MEDIA_TYPE_VALIDATION(902050, "Invalid or mismatched media type detected.", 415,
+            "File extension '%s' does not match detected MIME type '%s'"),
+    ERROR_ENCRYPTING_ENDPOINT_SECURITY(902055, "Error while encrypting the endpoint security details", 500,
+            "Error while encrypting the endpoint security details. %s", true),
+    INVALID_API_ENDPOINT_PAYLOAD(902056, "Invalid API endpoint request payload", 400,
+            "The API endpoint request payload is malformed or missing required fields."),
+
+    // Guardrail related codes
+    GUARDRAIL_VIOLATION(900514, "Guardrail intervened.", 446,
+            "Guardrail constraint violation detected."),
+
+    // MCP server related codes
+    MCP_SERVER_TOOL_LIST_GENERATION_FAILED(904000, "Failed to generate tool list", 400,
+            "The MCP server returned an invalid or empty response when generating the tool list."),
+    API_UPDATE_FORBIDDEN_PER_MCP_USAGE(904001, "API update not allowed due to MCP server usage", 403,
+            "Updating this API's resources is forbidden because it is used to generate one or more MCP servers.",
+            false),
+    MCP_REQUEST_BODY_CANNOT_BE_NULL(904002, "MCP request body cannot be null", 400,
+            "The request body is required and cannot be null or empty."),
+    MCP_REQUEST_URL_CANNOT_BE_NULL(904003, "Server URL cannot be null", 400,
+            "Server URL is required and cannot be null or empty."),
+    MCP_BACKENDS_NOT_FOUND(904004, "No backends found for MCP Server subtype", 400,
+            "No backends are defined in backends.yaml or backends.json for the specified MCP Server subtype."),
+    MCP_SERVER_NOT_FOUND(904005, "MCP Server Not Found", 404,
+            "Requested MCP Server with id '%s' not found"),
+    MCP_SERVER_REVISION_NOT_FOUND(904006, "MCP Server Revision Not Found", 404,
+            "Requested MCP Server Revision with id %s not found"),
+    MCP_SERVER_VERSION_ALREADY_EXISTS(904007, "The MCP Server version already exists.", 409,
+            "A MCP Server with version '%s' already exists for MCP Server '%s'"),
+    RETIRED_MCP_SERVER_REVISION_DEPLOYMENT_UNSUPPORTED(904008,
+            "Deploying MCP Server Revisions is not supported for retired MCP Servers", 400,
+            "Deploying MCP Server Revisions is not supported for retired MCP Servers. MCP Server UUID: %s"),
+    NO_MCP_SERVER_ARTIFACT_FOUND(904009, "No MCP Server artifacts found for given criteria", 404,
+            "No MCP Server artifacts found for given criteria"),
+    MCP_SERVER_UPDATE_FORBIDDEN_PER_LC(904010, "Insufficient permission to update the MCP Server", 403,
+            "Updating the MCP Server is restricted as as it is %s."),
+    INVALID_MCP_SERVER_ID(904011, "Invalid MCP Server ID", 404,
+            "The provided MCP SERVER ID is not found %s", false),
+    INVALID_REFERENCE_API(904012, "Invalid reference API", 400,
+            "Referenced API is not supported for MCP Server."),
+    DUPLICATE_MCP_TOOLS(904013, "Duplicate MCP tools", 400,
+            "One or more MCP tools are duplicated."),
+
+    // gateway notification related codes
+    GATEWAY_NOTIFICATION_BAD_REQUEST(902052, "Invalid request for gateway notification", 400,
+            "Invalid request for gateway notification. %s"),
+    GATEWAY_NOTIFICATION_INTERNAL_SERVER_ERROR(902053, "Internal server error while processing gateway notification",
+            500, "Error occurred while processing gateway notification."),
+    GATEWAY_DEPLOYMENT_STATUS_ACKNOWLEDGMENT_LIST_EMPTY(902051, "Invalid request: Empty or null acknowledgment list", 400,
+            "Invalid request: Empty or null acknowledgment list"),
+    GATEWAY_DEPLOYMENT_STATUS_INTERNAL_SERVER_ERROR(902054, "Internal server error.", 500,
+                                                    "Error occurred while retrieving/persisting deployment status "
+                                                            + "acknowledgment");
+
     private final long errorCode;
     private final String errorMessage;
     private final int httpStatusCode;

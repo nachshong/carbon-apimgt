@@ -471,7 +471,13 @@ public class GatewayUtils {
             bufferedInputStream = new BufferedInputStream(pipe.getInputStream());
         }
         inputStreamMap = new HashMap<>();
-        String contentType = axis2MC.getProperty(ThreatProtectorConstants.CONTENT_TYPE).toString();
+        String contentType;
+        Object contentTypeObject = axis2MC.getProperty(ThreatProtectorConstants.CONTENT_TYPE);
+        if (contentTypeObject != null) {
+            contentType = contentTypeObject.toString();
+        } else {
+            contentType = axis2MC.getProperty(ThreatProtectorConstants.SOAP_CONTENT_TYPE).toString();
+        }
 
         if (bufferedInputStream != null) {
             bufferedInputStream.mark(0);
@@ -547,12 +553,12 @@ public class GatewayUtils {
 
     public static String getQualifiedApiName(String apiName, String version) {
 
-        return apiName + ":v" + version;
+        return APIConstants.SYNAPSE_API_NAME_PREFIX + "--" + apiName + ":v" + version;
     }
 
     public static String getQualifiedDefaultApiName(String apiName) {
 
-        return apiName;
+        return APIConstants.SYNAPSE_API_NAME_PREFIX + "--" + apiName;
     }
 
     /**
@@ -1612,6 +1618,10 @@ public class GatewayUtils {
         return DataHolder.getInstance().isAllGatewayPoliciesDeployed();
     }
 
+    public static boolean isTenantsProvisioned() {
+        return DataHolder.getInstance().isTenantsProvisioned();
+    }
+
     public static List<String> getKeyManagers(org.apache.synapse.MessageContext messageContext) {
 
         API api = getAPI(messageContext);
@@ -1839,5 +1849,15 @@ public class GatewayUtils {
             throw new IllegalArgumentException("Endpoint model cannot be null or empty");
         }
         return endpoint.getEndpointId() + "_" + endpoint.getModel();
+    }
+    public static boolean isTenantLoadingEnable(){
+        APIManagerConfiguration apiManagerConfiguration = ServiceReferenceHolder.getInstance().getAPIManagerConfiguration();
+        if (apiManagerConfiguration != null){
+            GatewayArtifactSynchronizerProperties gatewayArtifactSynchronizerProperties = apiManagerConfiguration.getGatewayArtifactSynchronizerProperties();
+            if (gatewayArtifactSynchronizerProperties !=null){
+                return gatewayArtifactSynchronizerProperties.isTenantLoading();
+            }
+        }
+        return false;
     }
 }

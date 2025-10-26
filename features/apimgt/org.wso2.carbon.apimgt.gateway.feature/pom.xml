@@ -20,7 +20,7 @@
     <parent>
         <groupId>org.wso2.carbon.apimgt</groupId>
         <artifactId>apimgt-feature</artifactId>
-        <version>9.31.87-SNAPSHOT</version>
+        <version>9.32.143-SNAPSHOT</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
@@ -183,6 +183,14 @@
             <groupId>org.wso2.orbit.software.amazon.awssdk</groupId>
             <artifactId>aws-core</artifactId>
         </dependency>
+        <dependency>
+            <groupId>commons-validator</groupId>
+            <artifactId>commons-validator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.wso2.carbon.mcp.transformer</groupId>
+            <artifactId>mcp-transformer-java</artifactId>
+        </dependency>
     </dependencies>
 
     <build>
@@ -278,7 +286,7 @@
                                 <bundleDef>net.sf.ehcache.wso2:ehcache</bundleDef>
                                 <bundleDef>org.json.wso2:json:${orbit.version.json}</bundleDef>
                                 <bundleDef>org.apache.commons:commons-pool2:${apache.commons.version}</bundleDef>
-                                <bundleDef>org.apache.commons:commons-lang3:${apache.commons.lang3.version}</bundleDef>
+                                <bundleDef>org.wso2.orbit.org.apache.commons:commons-lang3:${apache.commons.lang3.version}</bundleDef>
                                 <bundleDef>org.wso2.orbit.re2j:re2j:${re2j.version}</bundleDef>
                                 <bundleDef>com.google.code.gson:gson:${google.code.gson.version}</bundleDef>
                                 <bundleDef>org.wso2.orbit.org.everit.json:org.everit.json.schema:${everit.version}
@@ -308,6 +316,8 @@
                                 <bundleDef>io.swagger:swagger-annotations</bundleDef>
                                 <bundleDef>io.github.openfeign:feign-httpclient:${openfeign.version}</bundleDef>
                                 <bundleDef>org.wso2.orbit.com.nimbusds:nimbus-jose-jwt:${com.nimbusds.wso2.version}</bundleDef>
+                                <bundleDef>commons-validator:commons-validator:${commons-validator.version}</bundleDef>
+                                <bundleDef>org.wso2.carbon.mcp.transformer:mcp-transformer-java:${mcp.transformer.version}</bundleDef>
                             </bundles>
                             <importBundles>
                                 <importBundleDef>

@@ -19,14 +19,19 @@ package org.wso2.carbon.apimgt.api.model;
 
 import org.apache.commons.lang3.StringUtils;
 import org.wso2.carbon.apimgt.api.APIManagementException;
+import org.wso2.carbon.apimgt.api.UsedByMigrationClient;
 
+import java.io.Serializable;
 import java.net.MalformedURLException;
 import java.net.URL;
 
 /**
  * This class represent an Virtual Host
  */
-public class VHost {
+public class VHost implements Serializable {
+
+    private static final long serialVersionUID = 1L;
+
     // host name from the http endpoint
     private String host;
     private String httpContext = "";
@@ -58,6 +63,7 @@ public class VHost {
     public VHost() {
     }
 
+    @UsedByMigrationClient
     public String getHost() {
         return host;
     }
@@ -66,6 +72,7 @@ public class VHost {
         this.host = host;
     }
 
+    @UsedByMigrationClient
     public String getHttpContext() {
         return httpContext;
     }
@@ -74,6 +81,7 @@ public class VHost {
         this.httpContext = httpContext;
     }
 
+    @UsedByMigrationClient
     public Integer getHttpPort() {
         return httpPort;
     }
@@ -82,6 +90,7 @@ public class VHost {
         this.httpPort = httpPort;
     }
 
+    @UsedByMigrationClient
     public Integer getHttpsPort() {
         return httpsPort;
     }
@@ -90,6 +99,7 @@ public class VHost {
         this.httpsPort = httpsPort;
     }
 
+    @UsedByMigrationClient
     public Integer getWsPort() {
         return wsPort;
     }
@@ -106,6 +116,7 @@ public class VHost {
         this.wsHost = wsHost;
     }
 
+    @UsedByMigrationClient
     public Integer getWssPort() {
         return wssPort;
     }
@@ -162,6 +173,7 @@ public class VHost {
         return String.format("%s://%s%s%s", protocol, hostName, port, context);
     }
 
+    @UsedByMigrationClient
     public static VHost fromEndpointUrls(String[] endpoints) throws APIManagementException {
         VHost vhost = new VHost();
 

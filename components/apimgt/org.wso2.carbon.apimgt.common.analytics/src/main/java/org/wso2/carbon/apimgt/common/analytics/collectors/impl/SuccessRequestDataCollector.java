@@ -34,15 +34,8 @@ import org.wso2.carbon.apimgt.common.analytics.publishers.impl.SuccessRequestDat
 
 import java.util.Iterator;
 import java.util.Map;
-
-import static org.wso2.carbon.apimgt.common.analytics.Constants.EMAIL_MASK_VALUE;
-import static org.wso2.carbon.apimgt.common.analytics.Constants.EMAIL_PROP_TYPE;
-import static org.wso2.carbon.apimgt.common.analytics.Constants.IPV4_MASK_VALUE;
-import static org.wso2.carbon.apimgt.common.analytics.Constants.IPV4_PROP_TYPE;
-import static org.wso2.carbon.apimgt.common.analytics.Constants.IPV6_MASK_VALUE;
-import static org.wso2.carbon.apimgt.common.analytics.Constants.IPV6_PROP_TYPE;
-import static org.wso2.carbon.apimgt.common.analytics.Constants.USERNAME_MASK_VALUE;
-import static org.wso2.carbon.apimgt.common.analytics.Constants.USERNAME_PROP_TYPE;
+import java.util.Objects;
+import java.util.stream.Stream;
 
 /**
  * Success request data collector.
@@ -51,6 +44,7 @@ public class SuccessRequestDataCollector extends CommonRequestDataCollector impl
     private static final Log log = LogFactory.getLog(SuccessRequestDataCollector.class);
     private RequestDataPublisher processor;
     private AnalyticsDataProvider provider;
+
     public SuccessRequestDataCollector(AnalyticsDataProvider provider, RequestDataPublisher processor) {
         super(provider);
         this.processor = processor;
@@ -103,31 +97,60 @@ public class SuccessRequestDataCollector extends CommonRequestDataCollector impl
 
         // Mask UserName if configured
         if (userName != null) {
-            if (maskData.containsKey("api.ut.userName")) {
-                userName = maskAnalyticsData(maskData.get("api.ut.userName"), userName);
-            } else if (maskData.containsKey("api.ut.userId")) {
-                userName = maskAnalyticsData(maskData.get("api.ut.userId"), userName);
+            String maskType = Stream.of(
+                            "api.ut.userName",
+                            "userName",
+                            "api.ut.userId",
+                            "userId"
+                    )
+                    .map(maskData::get)
+                    .filter(Objects::nonNull)
+                    .findFirst()
+                    .orElse(null);
+
+            if (maskType != null) {
+                userName = maskAnalyticsData(maskType, userName);
             }
+        } else {
+            userName = Constants.UNKNOWN_VALUE;
+        }
+
+        // Mask Application Owner if configured
+        if (application.getApplicationOwner() != null && maskData.containsKey("applicationOwner")) {
+            String appOwner = application.getApplicationOwner();
+            appOwner = maskAnalyticsData(maskData.get("applicationOwner"), appOwner);
+            application.setApplicationOwner(appOwner);
         }
 
         String userIp = provider.getEndUserIP();
-        if (userName == null) {
-            userName = Constants.UNKNOWN_VALUE;
-        }
+
         if (userIp == null) {
             userIp = Constants.UNKNOWN_VALUE;
         } else {
             // Mask User IP if configured
-            if (maskData.containsKey("api.analytics.user.ip")) {
-                userIp = maskAnalyticsData(maskData.get("api.analytics.user.ip"), userIp);
+            String maskType = Stream.of("api.analytics.user.ip", "userIp")
+                    .map(maskData::get)
+                    .filter(Objects::nonNull)
+                    .findFirst()
+                    .orElse(null);
+
+            if (maskType != null) {
+                userIp = maskAnalyticsData(maskType, userIp);
             }
         }
         if (userAgent == null) {
             userAgent = Constants.UNKNOWN_VALUE;
         } else {
-            if (maskData.containsKey("api.analytics.user.agent")) {
-                userAgent = maskAnalyticsData(maskData.get("api.analytics.user.agent"), userAgent);
+            String maskType = Stream.of("api.analytics.user.agent", "userAgent")
+                    .map(maskData::get)
+                    .filter(Objects::nonNull)
+                    .findFirst()
+                    .orElse(null);
+
+            if (maskType != null) {
+                userAgent = maskAnalyticsData(maskType, userAgent);
             }
+
         }
 
         event.setApi(api);
@@ -143,35 +166,6 @@ public class SuccessRequestDataCollector extends CommonRequestDataCollector impl
         event.setUserIp(userIp);
 
         this.processor.publish(event);
-    }
-
-    private String maskAnalyticsData(String type, Object value) {
-        if (value instanceof String) {
-            switch (type) {
-                case IPV4_PROP_TYPE:
-                    String[] octets = value.toString().split("\\.");
-
-                    // Sample output: 192.168.***.98
-                    return octets[0] + "." + octets[1] + "." + IPV4_MASK_VALUE + "." + octets[3];
-                case IPV6_PROP_TYPE:
-                    octets = value.toString().split(":");
-
-                    // Sample output: 2001:0db8:85a3:****:****:****:****:7334
-                    return octets[0] + ":" + octets[1] + ":" + octets[2] + ":" + IPV6_MASK_VALUE + ":" + IPV6_MASK_VALUE
-                            + ":" + IPV6_MASK_VALUE + ":" + IPV6_MASK_VALUE + ":" + octets[7];
-                case EMAIL_PROP_TYPE:
-                    String[] email = value.toString().split("@");
-
-                    // Sample output: *****@gmail.com
-                    return EMAIL_MASK_VALUE + "@" + email[1];
-                case USERNAME_PROP_TYPE:
-                    return USERNAME_MASK_VALUE;
-                default:
-                    // Sample output: ********
-                    return USERNAME_MASK_VALUE;
-            }
-        }
-        return null;
     }
 
 }

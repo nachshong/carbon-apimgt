@@ -415,16 +415,15 @@ public class ThrottleHandler extends AbstractHandler implements ManagedLifecycle
                                             if (isHardLimitThrottled(synCtx, authContext, apiContext, apiVersion)) {
                                                 isThrottled = true;
 
-                                            } else if (((Axis2MessageContext)synCtx).getAxis2MessageContext()
-                                                    .getProperty(AI_API_REQUEST_METADATA) == null) {
-                                                ServiceReferenceHolder.getInstance().getThrottleDataPublisher().
-                                                        publishNonThrottledEvent(applicationLevelThrottleKey,
+                                            } else if (!AI_API_SUB_TYPE.equals(
+                                                    synCtx.getProperty(APIMgtGatewayConstants.SUB_TYPE))) {
+                                                ServiceReferenceHolder.getInstance().getThrottleDataPublisher()
+                                                        .publishNonThrottledEvent(applicationLevelThrottleKey,
                                                                 applicationLevelTier, apiLevelThrottleKey, apiLevelTier,
                                                                 subscriptionLevelThrottleKey, subscriptionLevelTier,
                                                                 resourceLevelThrottleKey, resourceLevelTier,
-                                                                authorizedUser, apiContext,
-                                                                apiVersion, subscriberTenantDomain, apiTenantDomain,
-                                                                applicationId,
+                                                                authorizedUser, apiContext, apiVersion,
+                                                                subscriberTenantDomain, apiTenantDomain, applicationId,
                                                                 synCtx, authContext);
                                             }
                                         } else {
@@ -622,6 +621,17 @@ public class ThrottleHandler extends AbstractHandler implements ManagedLifecycle
                 log.debug("Skipping GraphQL subscription handshake request.");
             }
             return true;
+        }
+
+        String apiType = (String) messageContext.getProperty(APIMgtGatewayConstants.API_TYPE);
+        if (APIConstants.API_TYPE_MCP.equalsIgnoreCase(apiType)) {
+            String mcpMethod = (String) messageContext.getProperty(APIMgtGatewayConstants.MCP_METHOD);
+            if (!APIConstants.MCP.METHOD_TOOL_CALL.equalsIgnoreCase(mcpMethod)) {
+                if (log.isDebugEnabled()) {
+                    log.debug("Skipping MCP call request throttling.");
+                }
+                return true;
+            }
         }
 
         if (ServiceReferenceHolder.getInstance().getThrottleDataPublisher() == null) {

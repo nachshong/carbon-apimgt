@@ -28,7 +28,7 @@ public class RedisConfig {
     private int port;
     private String user;
     private char[] password;
-    private int databaseId;
+    private int databaseId = 0;
     private int connectionTimeout;
     private boolean isSslEnabled;
     private int maxTotal = 8;
@@ -42,7 +42,7 @@ public class RedisConfig {
     private long timeBetweenEvictionRunsMillis = 30000L;
     private int numTestsPerEvictionRun = -1;
     private String gatewayId;
-    private int minGatewayCount;
+    private long minGatewayCount;
     private long keyLockRetrievalTimeout;
     private String hybridThrottleProcessorType;
     public int getMaxTotal() {
@@ -240,10 +240,10 @@ public class RedisConfig {
         return gatewayId;
     }
 
-    public void setMinGatewayCount(int minGatewayCount) {
+    public void setMinGatewayCount(long minGatewayCount) {
         this.minGatewayCount = minGatewayCount;
     }
-    public int getMinGatewayCount() {
+    public long getMinGatewayCount() {
         return minGatewayCount;
     }
 

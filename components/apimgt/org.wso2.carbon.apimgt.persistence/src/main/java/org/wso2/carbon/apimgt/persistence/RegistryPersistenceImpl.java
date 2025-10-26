@@ -436,23 +436,22 @@ public class RegistryPersistenceImpl implements APIPersistence {
                 newAPIArtifact.setUUID(apiUUID);
                 registry.put(apiPath, newAPIArtifact);
                 GenericArtifact artifact = getAPIArtifact(apiUUID, registry);
-                artifact.setAttribute(APIConstants.API_OVERVIEW_STATUS, lifecycleStatus);
-                // Update with the modified artifact
-                artifactManager.updateGenericArtifact(artifact);
+                if (artifact != null) {
+                    if (artifact.getAttribute(APIConstants.API_OVERVIEW_VERSION_COMPARABLE) == null) {
+                        if (existingVersionComparable != null) {
+                            artifact.setAttribute(APIConstants.API_OVERVIEW_VERSION_COMPARABLE, existingVersionComparable);
+                        } else {
+                            artifact.setAttribute(APIConstants.API_OVERVIEW_VERSION_COMPARABLE,
+                                    String.valueOf(System.currentTimeMillis()));
+                        }
+                    }
+                    artifact.setAttribute(APIConstants.API_OVERVIEW_STATUS, lifecycleStatus);
+                    artifactManager.updateGenericArtifact(artifact);
+                }
                 RegistryPersistenceUtil.clearResourcePermissions(apiPath, api.getId(),
                         ((UserRegistry) registry).getTenantId());
                 RegistryPersistenceUtil.setResourcePermissions(api.getId().getProviderName(), api.getVisibility(),
                         visibleRoles, apiPath);
-                GenericArtifact newArtifact = artifactManager.getGenericArtifact(apiUUID);
-                if (newArtifact != null && newArtifact.getAttribute(APIConstants.API_OVERVIEW_VERSION_COMPARABLE) == null) {
-                    if (existingVersionComparable != null) {
-                        newArtifact.setAttribute(APIConstants.API_OVERVIEW_VERSION_COMPARABLE, existingVersionComparable);
-                    } else {
-                        newArtifact.setAttribute(APIConstants.API_OVERVIEW_VERSION_COMPARABLE,
-                                String.valueOf(System.currentTimeMillis()));
-                    }
-                    artifactManager.updateGenericArtifact(newArtifact);
-                }
             }
             registry.commitTransaction();
             transactionCommitted = true;
@@ -626,9 +625,16 @@ public class RegistryPersistenceImpl implements APIPersistence {
             }
 
             if (api.getSwaggerDefinition() != null) {
-                String resourcePath = RegistryPersistenceUtil.getOpenAPIDefinitionFilePath(api.getId().getName(),
-                        api.getId().getVersion(), api.getId().getProviderName());
-                resourcePath = resourcePath + APIConstants.API_OAS_DEFINITION_RESOURCE_NAME;
+                String apiPath = GovernanceUtils.getArtifactPath(registry, api.getUuid());
+                int prependIndex = apiPath.lastIndexOf(APIConstants.API_RESOURCE_NAME);
+                if (prependIndex == -1) {
+                    throw new APIPersistenceException(
+                            "API resource name '" + APIConstants.API_RESOURCE_NAME + "' not found in API path: "
+                                    + apiPath);
+                }
+                String apiSourcePath = apiPath.substring(0, prependIndex);
+                String resourcePath = apiSourcePath + RegistryConstants.PATH_SEPARATOR
+                        + APIConstants.API_OAS_DEFINITION_RESOURCE_NAME;
                 Resource resource;
                 if (!registry.resourceExists(resourcePath)) {
                     resource = registry.newResource();
@@ -792,8 +798,16 @@ public class RegistryPersistenceImpl implements APIPersistence {
         }
     }
 
+
     @Override
     public PublisherAPI getPublisherAPI(Organization org, String apiId) throws APIPersistenceException {
+
+        return getPublisherAPI(org, apiId, null);
+    }
+
+    @Override
+    public PublisherAPI getPublisherAPI(Organization org, String apiId, String apiType)
+            throws APIPersistenceException {
 
         boolean tenantFlowStarted = false;
         try {
@@ -803,8 +817,23 @@ public class RegistryPersistenceImpl implements APIPersistence {
 
             GenericArtifact apiArtifact = getAPIArtifact(apiId, registry);
             if (apiArtifact != null) {
-
                 API api = RegistryPersistenceUtil.getApiForPublishing(registry, apiArtifact);
+                if (apiType != null) {
+                    if (APIConstants.API_IDENTIFIER_TYPE.equalsIgnoreCase(apiType)) {
+                        if (APIConstants.API_TYPE_MCP.equalsIgnoreCase(api.getType())) {
+                            if (log.isDebugEnabled()) {
+                                log.debug("API type is MCP, returning null for API ID: " + apiId);
+                            }
+                            return null;
+                        }
+                    } else if (!apiType.equalsIgnoreCase(api.getType())) {
+                        if (log.isDebugEnabled()) {
+                            log.debug("API type mismatch. Expected: " + apiType + ", Actual: " + api.getType()
+                                    + " for API ID: " + apiId);
+                        }
+                        return null;
+                    }
+                }
                 String apiPath = GovernanceUtils.getArtifactPath(registry, apiId);
                 int prependIndex = apiPath.lastIndexOf("/api");
                 String apiSourcePath = apiPath.substring(0, prependIndex);
@@ -860,6 +889,11 @@ public class RegistryPersistenceImpl implements APIPersistence {
 
     @Override
     public DevPortalAPI getDevPortalAPI(Organization org, String apiId) throws APIPersistenceException {
+        return getDevPortalAPI(org, apiId, null);
+    }
+
+    @Override
+    public DevPortalAPI getDevPortalAPI(Organization org, String apiId, String apiType) throws APIPersistenceException {
         boolean tenantFlowStarted = false;
         try {
             String tenantDomain = org.getName();
@@ -869,12 +903,32 @@ public class RegistryPersistenceImpl implements APIPersistence {
 
             GenericArtifact apiArtifact = getAPIArtifact(apiId, registry);
             if (apiArtifact != null) {
-
                 API api = RegistryPersistenceUtil.getApiForPublishing(registry, apiArtifact);
-                String definitionPath = APIConstants.API_ROOT_LOCATION + RegistryConstants.PATH_SEPARATOR
-                        + RegistryPersistenceUtil.replaceEmailDomain(api.getId().getProviderName())
-                        + RegistryConstants.PATH_SEPARATOR + api.getId().getName() + RegistryConstants.PATH_SEPARATOR
-                        + api.getId().getVersion() + RegistryConstants.PATH_SEPARATOR
+                if (apiType != null) {
+                    if (APIConstants.API_IDENTIFIER_TYPE.equalsIgnoreCase(apiType)) {
+                        if (APIConstants.API_TYPE_MCP.equalsIgnoreCase(api.getType())) {
+                            if (log.isDebugEnabled()) {
+                                log.debug("API type is MCP, returning null for API ID: " + apiId);
+                            }
+                            return null;
+                        }
+                    } else if (!apiType.equalsIgnoreCase(api.getType())) {
+                        if (log.isDebugEnabled()) {
+                            log.debug("API type mismatch. Expected: " + apiType + ", Actual: " + api.getType()
+                                    + " for API ID: " + apiId);
+                        }
+                        return null;
+                    }
+                }
+                String apiPath = GovernanceUtils.getArtifactPath(registry, apiId);
+                int prependIndex = apiPath.lastIndexOf(APIConstants.API_RESOURCE_NAME);
+                if (prependIndex == -1) {
+                    throw new APIPersistenceException(
+                            "API resource name '" + APIConstants.API_RESOURCE_NAME + "' not found in API path: "
+                                    + apiPath);
+                }
+                String apiSourcePath = apiPath.substring(0, prependIndex);
+                String definitionPath = apiSourcePath + RegistryConstants.PATH_SEPARATOR
                         + APIConstants.API_OAS_DEFINITION_RESOURCE_NAME;
 
                 if (registry.resourceExists(definitionPath)) {
@@ -1141,6 +1195,7 @@ public class RegistryPersistenceImpl implements APIPersistence {
                 apiInfo.setTechnicalOwnerEmail(artifact.getAttribute(APIConstants.API_OVERVIEW_TEC_OWNER_EMAIL));
                 apiInfo.setMonetizationStatus(Boolean.parseBoolean(artifact.
                         getAttribute(APIConstants.Monetization.API_MONETIZATION_STATUS)));
+                apiInfo.setDisplayName(artifact.getAttribute(APIConstants.API_OVERVIEW_DISPLAY_NAME));
                 publisherAPIInfoList.add(apiInfo);
 
                 // Ensure the APIs returned matches the length, there could be an additional API
@@ -1227,7 +1282,6 @@ public class RegistryPersistenceImpl implements APIPersistence {
         String modifiedQuery = "q=* TO *&" + filterQuery;
 
         try {
-            PaginationContext.init(start, offset, "ASC", APIConstants.API_OVERVIEW_NAME, getMaxPaginationLimit());
             UserRegistry systemUserRegistry = ServiceReferenceHolder.getInstance().getRegistryService()
                     .getRegistry(CarbonConstants.REGISTRY_SYSTEM_USERNAME, tenantId);
             ContentBasedSearchService contentBasedSearchService = new ContentBasedSearchService();
@@ -1345,6 +1399,7 @@ public class RegistryPersistenceImpl implements APIPersistence {
                         getAttribute(APIConstants.Monetization.API_MONETIZATION_STATUS)));
                 apiInfo.setAdvertiseOnly(Boolean.parseBoolean(artifact
                         .getAttribute(APIConstants.API_OVERVIEW_ADVERTISE_ONLY)));
+                apiInfo.setDisplayName(artifact.getAttribute(APIConstants.API_OVERVIEW_DISPLAY_NAME));
                 devPortalAPIInfoList.add(apiInfo);
 
                 // Ensure the APIs returned matches the length, there could be an additional API
@@ -1569,6 +1624,7 @@ public class RegistryPersistenceImpl implements APIPersistence {
                                 apiInfo.setType(artifact.getAttribute(APIConstants.API_OVERVIEW_TYPE));
                                 apiInfo.setId(artifact.getId());
                                 apiInfo.setApiName(artifact.getAttribute(APIConstants.API_OVERVIEW_NAME));
+                                apiInfo.setDisplayName(artifact.getAttribute(APIConstants.API_OVERVIEW_DISPLAY_NAME));
                                 apiInfo.setDescription(artifact.getAttribute(APIConstants.API_OVERVIEW_DESCRIPTION));
                                 apiInfo.setContext(artifact.getAttribute(APIConstants.API_OVERVIEW_CONTEXT_TEMPLATE));
                                 apiInfo.setProviderName(artifact.getAttribute(APIConstants.API_OVERVIEW_PROVIDER));
@@ -1706,26 +1762,34 @@ public class RegistryPersistenceImpl implements APIPersistence {
                             PublisherAPI pubAPI;
                             if (apiArtifactId != null) {
                                 GenericArtifact apiArtifact = apiArtifactManager.getGenericArtifact(apiArtifactId);
-                                String accociatedType;
+                                String associatedType;
                                 if (apiArtifact.getAttribute(APIConstants.API_OVERVIEW_TYPE).
                                         equals(APIConstants.AuditLogConstants.API_PRODUCT)) {
                                     //associatedAPIProduct = APIUtil.getAPIProduct(apiArtifact, registry);
-                                    accociatedType = APIConstants.API_PRODUCT;
+                                    associatedType = APIConstants.API_PRODUCT;
+                                } else if (apiArtifact.getAttribute(APIConstants.API_OVERVIEW_TYPE)
+                                        .equals(APIConstants.MCP)){
+                                    associatedType = APIConstants.MCP;
                                 } else {
                                     //associatedAPI = APIUtil.getAPI(apiArtifact, registry);
-                                    accociatedType = APIConstants.API;
+                                    associatedType = APIConstants.API;
                                 }
                                 pubAPI = RegistryPersistenceUtil.getAPIForSearch(apiArtifact);
                                 docSearch.setApiName(pubAPI.getApiName());
+                                docSearch.setApiDisplayName(pubAPI.getDisplayName());
                                 docSearch.setApiProvider(pubAPI.getProviderName());
                                 docSearch.setApiVersion(pubAPI.getVersion());
                                 docSearch.setApiUUID(pubAPI.getId());
-                                docSearch.setAssociatedType(accociatedType);
+                                docSearch.setAssociatedType(associatedType);
                                 docSearch.setDocType(doc.getType());
                                 docSearch.setId(doc.getId());
                                 docSearch.setSourceType(doc.getSourceType());
                                 docSearch.setVisibility(doc.getVisibility());
                                 docSearch.setName(doc.getName());
+                                docSearch.setCreatedTime(String.valueOf(docResource.getCreatedTime().getTime()));
+                                docSearch.setUpdatedTime(String.valueOf((docResource.getLastModified() != null ?
+                                        docResource.getLastModified() :
+                                        docResource.getCreatedTime()).getTime()));
                                 contentData.add(docSearch);
                             } else {
                                 throw new GovernanceException("artifact id is null of " + apiPath);
@@ -1749,6 +1813,9 @@ public class RegistryPersistenceImpl implements APIPersistence {
                                     //apiProduct = APIUtil.getAPIProduct(apiArtifact, registry);
                                     //apiProductSet.add(apiProduct);
                                     type = APIConstants.API_PRODUCT;
+                                } else if (apiArtifact.getAttribute(APIConstants.API_OVERVIEW_TYPE)
+                                        .equals(APIConstants.MCP)){
+                                    type = APIConstants.MCP;
                                 } else {
                                     //api = APIUtil.getAPI(apiArtifact, registry);
                                     //apiSet.add(api);
@@ -1760,6 +1827,7 @@ public class RegistryPersistenceImpl implements APIPersistence {
                                 content.setDescription(pubAPI.getDescription());
                                 content.setId(pubAPI.getId());
                                 content.setName(pubAPI.getApiName());
+                                content.setDisplayName(pubAPI.getDisplayName());
                                 content.setProvider(
                                         RegistryPersistenceUtil.replaceEmailDomainBack(pubAPI.getProviderName()));
                                 content.setType(type);
@@ -1772,6 +1840,12 @@ public class RegistryPersistenceImpl implements APIPersistence {
                                 content.setTechnicalOwner(pubAPI.getTechnicalOwner());
                                 content.setTechnicalOwnerEmail(pubAPI.getTechnicalOwnerEmail());
                                 content.setMonetizationStatus(pubAPI.getMonetizationStatus());
+                                content.setCreatedTime(String.valueOf(resource.getCreatedTime().getTime()));
+                                content.setUpdatedTime(String.valueOf((resource.getLastModified() != null ?
+                                        resource.getLastModified() :
+                                        resource.getCreatedTime()).getTime()));
+                                content.setGatewayVendor(pubAPI.getGatewayVendor());
+                                content.setTransportType(pubAPI.getType());
                                 contentData.add(content);
                             } else {
                                 throw new GovernanceException("artifact id is null for " + resourcePath);
@@ -1788,6 +1862,7 @@ public class RegistryPersistenceImpl implements APIPersistence {
         } catch (RegistryException | IndexerException | DocumentationPersistenceException | APIManagementException e) {
             throw new APIPersistenceException("Error while searching for content ", e);
         } finally {
+            PaginationContext.destroy();
             if (isTenantFlowStarted) {
                 PrivilegedCarbonContext.endTenantFlow();
             }
@@ -1877,13 +1952,23 @@ public class RegistryPersistenceImpl implements APIPersistence {
                             String apiArtifactId = apiResource.getUUID();
                             DevPortalAPI devAPI;
                             if (apiArtifactId != null) {
+                                log.debug("Processing artifact for document search: " + apiArtifactId);
                                 GenericArtifact apiArtifact = apiArtifactManager.getGenericArtifact(apiArtifactId);
+                                String associatedType;
+                                if (apiArtifact.getAttribute(APIConstants.API_OVERVIEW_TYPE)
+                                        .equals(APIConstants.MCP)){
+                                    associatedType = APIConstants.MCP;
+                                } else {
+                                    associatedType = APIConstants.API;
+                                }
                                 devAPI = RegistryPersistenceUtil.getDevPortalAPIForSearch(apiArtifact);
                                 devAPI.setVisibility(apiArtifact.getAttribute(APIConstants.API_OVERVIEW_VISIBILITY));
                                 docSearch.setApiName(devAPI.getApiName());
+                                docSearch.setApiDisplayName(devAPI.getDisplayName());
                                 docSearch.setApiProvider(devAPI.getProviderName());
                                 docSearch.setApiVersion(devAPI.getVersion());
                                 docSearch.setApiUUID(devAPI.getId());
+                                docSearch.setAssociatedType(associatedType);
                                 docSearch.setDocType(doc.getType());
                                 docSearch.setId(doc.getId());
                                 docSearch.setSourceType(doc.getSourceType());
@@ -1909,9 +1994,11 @@ public class RegistryPersistenceImpl implements APIPersistence {
                                 DevPortalSearchContent content = new DevPortalSearchContent();
                                 content.setContext(devAPI.getContext());
                                 String associatedType;
-                                if (apiArtifact.getAttribute(APIConstants.API_OVERVIEW_TYPE)
-                                        .equals(APIConstants.AuditLogConstants.API_PRODUCT)) {
+                                String artifactType = apiArtifact.getAttribute(APIConstants.API_OVERVIEW_TYPE);
+                                if (artifactType.equals(APIConstants.API_PRODUCT)) {
                                     associatedType = APIConstants.API_PRODUCT;
+                                } else if (artifactType.equals(APIConstants.MCP)){
+                                    associatedType = APIConstants.MCP;
                                 } else {
                                     associatedType = APIConstants.API;
                                 }
@@ -1919,6 +2006,7 @@ public class RegistryPersistenceImpl implements APIPersistence {
                                 content.setType(associatedType);
                                 content.setId(devAPI.getId());
                                 content.setName(devAPI.getApiName());
+                                content.setDisplayName(devAPI.getDisplayName());
                                 content.setProvider(
                                         RegistryPersistenceUtil.replaceEmailDomainBack(devAPI.getProviderName()));
                                 content.setVersion(devAPI.getVersion());
@@ -1930,6 +2018,7 @@ public class RegistryPersistenceImpl implements APIPersistence {
                                 content.setTechnicalOwnerEmail(devAPI.getTechnicalOwnerEmail());
                                 content.setMonetizationStatus(devAPI.getMonetizationStatus());
                                 content.setAdvertiseOnly(devAPI.isAdvertiseOnly());
+                                content.setTransportType(devAPI.getType());
 
                                 contentData.add(content);
                             } else {
@@ -1947,6 +2036,7 @@ public class RegistryPersistenceImpl implements APIPersistence {
         } catch (RegistryException | IndexerException | DocumentationPersistenceException e) {
             throw new APIPersistenceException("Error while searching for content ", e);
         } finally {
+            PaginationContext.destroy();
             if (isTenantFlowStarted) {
                 PrivilegedCarbonContext.endTenantFlow();
             }
@@ -2135,15 +2225,21 @@ public class RegistryPersistenceImpl implements APIPersistence {
             }
 
             GenericArtifact apiArtifact = artifactManager.getGenericArtifact(apiId);
-
             String apiProviderName = apiArtifact.getAttribute(APIConstants.API_OVERVIEW_PROVIDER);
             String apiName = apiArtifact.getAttribute(APIConstants.API_OVERVIEW_NAME);
             String apiVersion = apiArtifact.getAttribute(APIConstants.API_OVERVIEW_VERSION);
             String visibleRoles = apiArtifact.getAttribute(APIConstants.API_OVERVIEW_VISIBLE_ROLES);
             String visibility = apiArtifact.getAttribute(APIConstants.API_OVERVIEW_VISIBILITY);
-            String resourcePath = RegistryPersistenceUtil.getOpenAPIDefinitionFilePath(apiName, apiVersion,
-                    apiProviderName);
-            resourcePath = resourcePath + APIConstants.API_OAS_DEFINITION_RESOURCE_NAME;
+            String apiPath = GovernanceUtils.getArtifactPath(registry, apiId);
+            int prependIndex = apiPath.lastIndexOf(APIConstants.API_RESOURCE_NAME);
+            if (prependIndex == -1) {
+                throw new OASPersistenceException(
+                        "API resource name '" + APIConstants.API_RESOURCE_NAME + "' not found in API path: "
+                                + apiPath);
+            }
+            String apiSourcePath = apiPath.substring(0, prependIndex);
+            String resourcePath = apiSourcePath + RegistryConstants.PATH_SEPARATOR
+                    + APIConstants.API_OAS_DEFINITION_RESOURCE_NAME;
             Resource resource;
             if (!registry.resourceExists(resourcePath)) {
                 resource = registry.newResource();
@@ -3605,8 +3701,8 @@ public class RegistryPersistenceImpl implements APIPersistence {
         boolean isTenantFlowStarted = false;
         PublisherAPIProductSearchResult result = new PublisherAPIProductSearchResult();
         try {
-            RegistryHolder holder = getRegistry(ctx.getUserame(), requestedTenantDomain);
-            Registry userRegistry = holder.getRegistry();
+            RegistryHolder holder = getRegistry(requestedTenantDomain);
+            Registry sysRegistry = holder.getRegistry();
             isTenantFlowStarted = holder.isTenantFlowStarted();
 
             log.debug("Requested query for publisher product search: " + searchQuery);
@@ -3615,15 +3711,16 @@ public class RegistryPersistenceImpl implements APIPersistence {
 
             log.debug("Modified query for publisher product search: " + modifiedQuery);
 
-            PrivilegedCarbonContext.getThreadLocalCarbonContext().setUsername(ctx.getUserame());
+            String tenantAdminUsername = getTenantAwareUsername(
+                    RegistryPersistenceUtil.getTenantAdminUserName(requestedTenantDomain));
+            PrivilegedCarbonContext.getThreadLocalCarbonContext().setUsername(tenantAdminUsername);
 
             final int maxPaginationLimit = getMaxPaginationLimit();
 
             PaginationContext.init(start, offset, "ASC", APIConstants.API_OVERVIEW_NAME, maxPaginationLimit);
 
-            List<GovernanceArtifact> governanceArtifacts = GovernanceUtils
-                    .findGovernanceArtifacts(modifiedQuery, userRegistry, APIConstants.API_RXT_MEDIA_TYPE,
-                            true);
+            List<GovernanceArtifact> governanceArtifacts = GovernanceUtils.findGovernanceArtifacts(modifiedQuery,
+                    sysRegistry, APIConstants.API_RXT_MEDIA_TYPE, true);
             int totalLength = PaginationContext.getInstance().getLength();
 
             // Check to see if we can speculate that there are more APIs to be loaded
@@ -3636,6 +3733,8 @@ public class RegistryPersistenceImpl implements APIPersistence {
             for (GovernanceArtifact artifact : governanceArtifacts) {
 
                 PublisherAPIProductInfo info = new PublisherAPIProductInfo();
+                String artifactPath = GovernanceUtils.getArtifactPath(sysRegistry, artifact.getId());
+                Resource apiProductResource = sysRegistry.get(artifactPath);
                 info.setProviderName(artifact.getAttribute(APIConstants.API_OVERVIEW_PROVIDER));
                 info.setContext(artifact.getAttribute(APIConstants.API_OVERVIEW_CONTEXT_TEMPLATE));
                 info.setId(artifact.getId());
@@ -3643,6 +3742,7 @@ public class RegistryPersistenceImpl implements APIPersistence {
                 info.setState(artifact.getAttribute(APIConstants.API_OVERVIEW_STATUS));
                 info.setType(artifact.getAttribute(APIConstants.API_OVERVIEW_TYPE));
                 info.setVersion(artifact.getAttribute(APIConstants.API_OVERVIEW_VERSION));
+                info.setDescription(artifact.getAttribute(APIConstants.API_OVERVIEW_DESCRIPTION));
                 info.setApiSecurity(artifact.getAttribute(APIConstants.API_OVERVIEW_API_SECURITY));
                 info.setThumbnail(artifact.getAttribute(APIConstants.API_OVERVIEW_THUMBNAIL_URL));
                 String audiences = artifact.getAttribute(APIConstants.API_OVERVIEW_AUDIENCES);
@@ -3655,7 +3755,8 @@ public class RegistryPersistenceImpl implements APIPersistence {
                 info.setTechnicalOwnerEmail(artifact.getAttribute(APIConstants.API_OVERVIEW_TEC_OWNER_EMAIL));
                 info.setMonetizationStatus(Boolean.parseBoolean(artifact.
                         getAttribute(APIConstants.Monetization.API_MONETIZATION_STATUS)));
-
+                info.setCreatedTime(String.valueOf(apiProductResource.getCreatedTime().getTime()));
+                info.setUpdatedTime(String.valueOf(apiProductResource.getLastModified().getTime()));
                 publisherAPIProductInfoList.add(info);
 
                 // Ensure the APIs returned matches the length, there could be an additional API
@@ -3670,8 +3771,8 @@ public class RegistryPersistenceImpl implements APIPersistence {
             result.setReturnedAPIsCount(publisherAPIProductInfoList.size());
             result.setTotalAPIsCount(totalLength);
 
-        } catch (GovernanceException e) {
-            throw new APIPersistenceException("Error while searching APIs ", e);
+        } catch (RegistryException | APIManagementException e) {
+            throw new APIPersistenceException("Error while searching API products ", e);
         } finally {
             PaginationContext.destroy();
             if (isTenantFlowStarted) {
@@ -4071,10 +4172,17 @@ public class RegistryPersistenceImpl implements APIPersistence {
                     throw new APIPersistenceException(errorMessage);
                 }
                 GenericArtifact artifact = getAPIArtifact(apiId, userRegistry);
+                if (log.isDebugEnabled()) {
+                    log.debug("Changing the provider name of API with id: " + apiId + " to " + providerName);
+                }
                 artifact.setAttribute(APIConstants.API_OVERVIEW_PROVIDER, providerName);
                 artifactManager.updateGenericArtifact(artifact);
                 userRegistry.commitTransaction();
-                transactionCommitted=true;
+                if (log.isDebugEnabled()) {
+                    log.debug("Successfully changed the provider name of API with id: " + apiId + " " +
+                            "to " + providerName);
+                }
+                transactionCommitted = true;
             }
         } catch (RegistryException e) {
             throw new APIPersistenceException("Error while Changing the api Provider", e);
@@ -4151,6 +4259,9 @@ public class RegistryPersistenceImpl implements APIPersistence {
                             if (apiArtifact.getAttribute(APIConstants.API_OVERVIEW_TYPE).
                                     equals(APIConstants.API_PRODUCT)) {
                                 type = APIConstants.API_PRODUCT;
+                            } else if (apiArtifact.getAttribute(APIConstants.API_OVERVIEW_TYPE)
+                                    .equals(APIConstants.MCP)){
+                                type = APIConstants.MCP;
                             } else {
                                 type = APIConstants.API;
                             }
@@ -4185,6 +4296,7 @@ public class RegistryPersistenceImpl implements APIPersistence {
         } catch (RegistryException | IndexerException | APIManagementException e) {
             throw new APIPersistenceException("Error while searching for content ", e);
         } finally {
+            PaginationContext.destroy();
             if (isTenantFlowStarted) {
                 PrivilegedCarbonContext.endTenantFlow();
             }
@@ -4315,21 +4427,28 @@ public class RegistryPersistenceImpl implements APIPersistence {
         if (apiArtifactId != null) {
             if (!ignoreDuplicateSwaggerContent) {
                 GenericArtifact apiArtifact = apiArtifactManager.getGenericArtifact(apiArtifactId);
-                devAPI = RegistryPersistenceUtil.getDevPortalAPIForSearch(apiArtifact);
-                content.setId(defResourceId);
-                content.setName(defResourceName);
-                content.setApiUUID(devAPI.getId());
-                content.setApiName(devAPI.getApiName());
-                content.setApiContext(devAPI.getContext());
-                content.setApiProvider(devAPI.getProviderName());
-                content.setApiVersion(devAPI.getVersion());
-                if (apiArtifact.getAttribute(APIConstants.API_OVERVIEW_TYPE)
-                        .equals(APIConstants.AuditLogConstants.API_PRODUCT)) {
-                    content.setAssociatedType(APIConstants.API_PRODUCT);
-                } else {
-                    content.setAssociatedType(APIConstants.API);
+                if (!apiArtifact.getAttribute(APIConstants.API_OVERVIEW_TYPE).equals(APIConstants.MCP)) {
+                    devAPI = RegistryPersistenceUtil.getDevPortalAPIForSearch(apiArtifact);
+                    content.setId(defResourceId);
+                    content.setName(defResourceName);
+                    content.setApiUUID(devAPI.getId());
+                    content.setApiName(devAPI.getApiName());
+                    content.setApiDisplayName(devAPI.getDisplayName());
+                    content.setApiContext(devAPI.getContext());
+                    content.setApiProvider(devAPI.getProviderName());
+                    content.setApiVersion(devAPI.getVersion());
+                    content.setCreatedTime(String.valueOf(defResource.getCreatedTime().getTime()));
+                    content.setUpdatedTime(String.valueOf((defResource.getLastModified() != null ?
+                            defResource.getLastModified() :
+                            defResource.getCreatedTime()).getTime()));
+                    if (apiArtifact.getAttribute(APIConstants.API_OVERVIEW_TYPE)
+                            .equals(APIConstants.AuditLogConstants.API_PRODUCT)) {
+                        content.setAssociatedType(APIConstants.API_PRODUCT);
+                    } else {
+                        content.setAssociatedType(APIConstants.API);
+                    }
+                    contentData.add(content);
                 }
-                contentData.add(content);
             }
 
         } else {

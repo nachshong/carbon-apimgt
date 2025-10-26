@@ -32,6 +32,7 @@ import org.apache.commons.io.IOUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.wso2.carbon.apimgt.api.APIManagementException;
+import org.wso2.carbon.apimgt.api.UsedByMigrationClient;
 import org.wso2.carbon.apimgt.impl.APIConstants;
 import org.wso2.carbon.apimgt.impl.APIConstants.ConfigType;
 import org.wso2.carbon.apimgt.impl.caching.CacheProvider;
@@ -175,6 +176,7 @@ public class APIMConfigServiceImpl implements APIMConfigService {
     }
 
     @Override
+    @UsedByMigrationClient
     public void addTenantConfig(String organization, String tenantConfig) throws APIManagementException {
 
         if (organization == null) {
@@ -184,6 +186,7 @@ public class APIMConfigServiceImpl implements APIMConfigService {
     }
 
     @Override
+    @UsedByMigrationClient
     public String getTenantConfig(String organization) throws APIManagementException {
 
         if (organization == null) {
@@ -218,6 +221,17 @@ public class APIMConfigServiceImpl implements APIMConfigService {
         scopesToCheck.put("apim:gov_result_read", "admin,Internal/publisher,Internal/creator,Internal/observer");
         scopesToCheck.put("apim:gov_policy_manage", "admin");
         scopesToCheck.put("apim:gov_policy_read", "admin,Internal/publisher,Internal/creator,Internal/observer");
+
+        // MCP Server specific scopes
+        scopesToCheck.put("apim:mcp_server_create", "admin,Internal/creator");
+        scopesToCheck.put("apim:mcp_server_manage", "admin");
+        scopesToCheck.put("apim:mcp_server_view", "admin,Internal/publisher,Internal/creator,Internal/analytics,Internal/observer");
+        scopesToCheck.put("apim:mcp_server_list_view", "admin,Internal/integration_dev");
+        scopesToCheck.put("apim:mcp_server_import_export", "admin,Internal/devops");
+        scopesToCheck.put("apim:mcp_server_publish", "admin,Internal/publisher");
+        scopesToCheck.put("apim:mcp_server_delete", "admin,Internal/creator");
+        scopesToCheck.put("apim:mcp_server_generate_key", "admin,Internal/creator,Internal/publisher");
+
         scopesToCheck.put(SUBSCRIPTION_APPROVAL_VIEW_SCOPE, "admin,Internal/publisher");
         scopesToCheck.put(SUBSCRIPTION_APPROVAL_MANAGE_SCOPE, "admin,Internal/publisher");
         scopesToCheck.put(PUBLISHER_ORG_READ, "admin,Internal/creator");
@@ -262,6 +276,7 @@ public class APIMConfigServiceImpl implements APIMConfigService {
     }
 
     @Override
+    @UsedByMigrationClient
     public void updateTenantConfig(String organization, String tenantConfig) throws APIManagementException {
 
         if (organization == null) {

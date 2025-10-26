@@ -23,6 +23,7 @@ import org.apache.axis2.context.MessageContext;
 import org.apache.axis2.transport.http.HTTPConstants;
 import org.apache.axis2.wsdl.WSDLConstants;
 import org.apache.commons.httpclient.Header;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.wso2.carbon.apimgt.api.APIManagementException;
@@ -173,7 +174,10 @@ public class APIKeyValidationService {
         log.debug("State after calling validateScopes... " + state);
 
         if (state && APIKeyMgtDataHolder.isJwtGenerationEnabled() &&
-                validationContext.getValidationInfoDTO().getEndUserName() != null && !validationContext.isCacheHit()) {
+                (validationContext.getValidationInfoDTO().getEndUserName() != null ||
+                        (validationContext.getTokenInfo() != null &&
+                                validationContext.getTokenInfo().isApplicationToken())) &&
+                !validationContext.isCacheHit()) {
             Timer timer5 = MetricManager.timer(org.wso2.carbon.metrics.manager.Level.INFO, MetricManager.name(
                     APIConstants.METRICS_PREFIX, this.getClass().getSimpleName(), "GENERATE_JWT"));
             Timer.Context timerContext5 = timer5.start();
@@ -290,6 +294,14 @@ public class APIKeyValidationService {
             template.setAuthType(urlMapping.getAuthScheme());
             template.setUriTemplate(urlMapping.getUrlPattern());
             template.setThrottlingTier(urlMapping.getThrottlingPolicy());
+
+            if(StringUtils.equals(APIConstants.API_TYPE_MCP, api.getApiType())) {
+                template.setDescription(urlMapping.getDescription());
+                template.setSchemaDefinition(urlMapping.getSchemaDefinition());
+                template.setAPIOperationMapping(urlMapping.getApiOperationMapping());
+                template.setBackendOperationMapping(urlMapping.getBackendOperationMapping());
+            }
+
 
             if (store.isApiPoliciesInitialized()) {
                 log.debug("SubscriptionDataStore Initialized. Reading API Policies from SubscriptionDataStore");
@@ -446,12 +458,11 @@ public class APIKeyValidationService {
                 if (APIKeyMgtDataHolder.isJwtGenerationEnabled() &&
                         validationContext.getValidationInfoDTO().getEndUserName() != null
                         && !validationContext.isCacheHit()) {
-                    Application application = APIUtil.getApplicationByClientId(validationContext.getValidationInfoDTO()
-                            .getConsumerKey());
-                    validationContext.getValidationInfoDTO().setApplicationId(String.valueOf(application.getId()));
-                    validationContext.getValidationInfoDTO().setApplicationTier(application.getTier());
                     keyValidationHandler.generateConsumerToken(validationContext);
                     info.setEndUserToken(validationContext.getValidationInfoDTO().getEndUserToken());
+                    if (log.isDebugEnabled()) {
+                        log.debug("JWT generation completed for websocket handshake");
+                    }
                 }
             }
             return validationContext.getValidationInfoDTO();

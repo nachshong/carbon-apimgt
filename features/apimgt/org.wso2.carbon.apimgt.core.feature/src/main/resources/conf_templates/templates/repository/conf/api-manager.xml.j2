@@ -11,6 +11,9 @@
     By default secure vault is disabled.-->
     <EnableSecureVault>{{apim.enable_secure_vault}}</EnableSecureVault>
 
+    <!-- The following parameter is used to determine whether the runtime is act as a read only instance. -->
+    <ReadOnly>{{apim.read_only | default('false')}}</ReadOnly>
+
     <!-- This parameter is used to enable mutual tls based authentication support for APIs, when this is disabled,
     APIs will be protected with OAuth2 security-->
     <EnableMTLSForAPIs>true</EnableMTLSForAPIs>
@@ -47,8 +50,11 @@
              jwt token, he needs to enable this parameter.
              The DefaultClaimsRetriever class adds user claims from the default carbon user store. -->
         <EnableUserClaims>{{apim.jwt.enable_user_claims}}</EnableUserClaims>
-        {% if apim.jwt.binding_federated_user_claims %}
+        {% if apim.jwt.binding_federated_user_claims is defined %}
         <EnableBindingFederatedUserClaims>{{apim.jwt.binding_federated_user_claims}}</EnableBindingFederatedUserClaims>
+        {% endif %}
+        {% if apim.jwt.binding_federated_user_claims_for_opaque is defined %}
+        <EnableBindingFederatedUserClaimsForOpaque>{{apim.jwt.binding_federated_user_claims_for_opaque}}</EnableBindingFederatedUserClaimsForOpaque>
         {% endif %}
         {% if apim.jwt.enable_user_claims %}
         <ClaimsRetrieverImplClass>{{apim.jwt.claims_extractor_impl}}</ClaimsRetrieverImplClass>
@@ -414,6 +420,10 @@
         <DefaultRequestTimout>{{apim.ai.default_request_timeout}}</DefaultRequestTimout>
     </AiConfiguration>
 
+    <MCP>
+        <Enabled>{{apim.mcp.enable}}</Enabled>
+    </MCP>
+
     <!--
         Configurations relevant to enable rate limit feature.
         This enables to use resources considering subscription levels.
@@ -490,8 +500,21 @@
       <EnableLightWeightAPIKeyGeneration>{{apim.key_manager.enable_lightweight_apikey_generation}}</EnableLightWeightAPIKeyGeneration>
       {% endif %}
       <AllowSubscriptionValidationDisabling>{{apim.key_manager.allow_subscription_validation_disabling}}</AllowSubscriptionValidationDisabling>
+      <DisableRetrieveKeyMapping>{{apim.key_manager.disable_retrieve_key_mapping}}</DisableRetrieveKeyMapping>
+      {% if apim.key_manager.enable_application_scopes_for_resident_km is defined %}
+      <EnableApplicationScopesForResidentKM>{{apim.key_manager.enable_application_scopes_for_resident_km}}</EnableApplicationScopesForResidentKM>
+      {% endif %}
+      <SkipCreateResidentKeyManager>{{apim.key_manager.skip_create_resident_key_manager}}</SkipCreateResidentKeyManager>
     </APIKeyValidator>
 
+    <BasicAuthValidator>
+        <ConnectionPool>
+            <MaxIdle>{{apim.basic_authenticator.max_idle}}</MaxIdle>
+            <InitIdleCapacity>{{apim.basic_authenticator.init_idle_capacity}}</InitIdleCapacity>
+            <MaxActive>{{apim.basic_authenticator.max_active}}</MaxActive>
+            <MaxWaitMillis>{{apim.basic_authenticator.max_wait_millis}}</MaxWaitMillis>
+        </ConnectionPool>
+    </BasicAuthValidator>
 
     <OAuthConfigurations>
         <!-- Remove OAuth headers from outgoing message. -->
@@ -535,6 +558,7 @@
         org.wso2.carbon.identity.oauth.tokenprocessor.HashingPersistenceProcessor and change the value of
         <EnableClientSecretHash> to true in the identity.xml -->
         <EnableTokenHashMode>{{apim.oauth_config.enable_token_hashing}}</EnableTokenHashMode>
+        <EnableRevokeTokenCleanup>{{apim.oauth_config.enable_revoke_token_cleanup}}</EnableRevokeTokenCleanup>
         <!-- Whether to validate certificate bound access tokens-->
         <EnableCertificateBoundAccessToken>{{apim.oauth_config.enable_certificate_bound_access_token}}</EnableCertificateBoundAccessToken>
 
@@ -638,6 +662,7 @@
         {% if apim.devportal.create_default_application is defined %}
         <CreateDefaultApplication>{{apim.devportal.create_default_application}}</CreateDefaultApplication>
         {% endif %}
+        <Mode>{{apim.devportal.mode}}</Mode>
     </APIStore>
 
     <APIPublisher>
@@ -798,6 +823,46 @@
             <AllowedURI>
                  <URI>/api/am/devportal/{version}/apis/{apiId}/subscription-policies</URI>
                  <HTTPMethods>GET,HEAD</HTTPMethods>
+            </AllowedURI>
+            <AllowedURI>
+                <URI>/api/am/devportal/{version}/mcp-servers</URI>
+                <HTTPMethods>GET,HEAD</HTTPMethods>
+            </AllowedURI>
+            <AllowedURI>
+                <URI>/api/am/devportal/{version}/mcp-servers/{mcpServerId}</URI>
+                <HTTPMethods>GET,HEAD</HTTPMethods>
+            </AllowedURI>
+            <AllowedURI>
+                <URI>/api/am/devportal/{version}/mcp-servers/{mcpServerId}/comments</URI>
+                <HTTPMethods>GET,HEAD</HTTPMethods>
+            </AllowedURI>
+            <AllowedURI>
+                <URI>/api/am/devportal/{version}/mcp-servers/{mcpServerId}/comments/{commentId}</URI>
+                <HTTPMethods>GET,HEAD</HTTPMethods>
+            </AllowedURI>
+            <AllowedURI>
+                <URI>/api/am/devportal/{version}/mcp-servers/{mcpServerId}/subscription-policies</URI>
+                <HTTPMethods>GET,HEAD</HTTPMethods>
+            </AllowedURI>
+            <AllowedURI>
+                <URI>/api/am/devportal/{version}/mcp-servers/{mcpServerId}/documents</URI>
+                <HTTPMethods>GET,HEAD</HTTPMethods>
+            </AllowedURI>
+            <AllowedURI>
+                <URI>/api/am/devportal/{version}/mcp-servers/{mcpServerId}/documents/{documentId}</URI>
+                <HTTPMethods>GET,HEAD</HTTPMethods>
+            </AllowedURI>
+            <AllowedURI>
+                <URI>/api/am/devportal/{version}/mcp-servers/{mcpServerId}/documents/{documentId}/content</URI>
+                <HTTPMethods>GET,HEAD</HTTPMethods>
+            </AllowedURI>
+            <AllowedURI>
+                <URI>/api/am/devportal/{version}/mcp-servers/{mcpServerId}/thumbnail</URI>
+                <HTTPMethods>GET,HEAD</HTTPMethods>
+            </AllowedURI>
+            <AllowedURI>
+                <URI>/api/am/devportal/{version}/mcp-servers/{mcpServerId}/ratings</URI>
+                <HTTPMethods>GET,HEAD</HTTPMethods>
             </AllowedURI>
             <AllowedURI>
                 <URI>/api/am/devportal/{version}/throttling-policies/{policyLevel}</URI>
@@ -1063,6 +1128,16 @@
          {%- endfor -%}
         </JWTAudiences>
         {% endif %}
+        <AdminPermissionRestrictedAPIs>
+        {% if apim.rest_api.admin_permission_restricted_api is defined %}
+        {% for uri in apim.rest_api.admin_permission_restricted_api %}
+            <AdminPermissionRestrictedAPI>
+                <URI>{{uri.uri_path}}</URI>
+                <HTTPMethods>{{uri.http_method}}</HTTPMethods>
+            </AdminPermissionRestrictedAPI>
+        {% endfor %}
+        {% endif %}
+        </AdminPermissionRestrictedAPIs>
     </RESTAPI>
     <ThrottlingConfigurations>
         <TrafficManager>
@@ -1121,6 +1196,10 @@
             <ServiceURL>{{apim.throttling.service_url}}</ServiceURL>
             <Username>{{apim.throttling.policy_deploy.username}}</Username>
             <Password>{{apim.throttling.policy_deploy.password}}</Password>
+            <TenantLoading>
+              <Enable>{{apim.throttling.policy_deploy.tenant_loading.enable}}</Enable>
+              <Tenants>{{apim.throttling.policy_deploy.tenant_loading.tenants}}</Tenants>
+            </TenantLoading>
         </PolicyDeployer>
         <BlockCondition>
             <Enabled>{{apim.throttling.enable_blacklist_condition}}</Enabled>
@@ -1173,11 +1252,15 @@
                 <java.naming.factory.initial>{{apim.throttling.jms.java_naming_factory_initial}}</java.naming.factory.initial>
                 {% if apim.throttling.jms.topic_connection_factory is defined %}
                 <connectionfactory.TopicConnectionFactory>{{apim.throttling.jms.topic_connection_factory}}</connectionfactory.TopicConnectionFactory>
-                {% elif apim.throttling.throttle_decision_endpoints is defined %}
+                {% elif apim.throttling.throttle_decision_endpoints is defined and (apim.throttling.jms.ssl is not defined) %}
                 <connectionfactory.TopicConnectionFactory>amqp://<![CDATA[{{apim.throttling.jms.username}}]]>:<![CDATA[{{apim.throttling.jms.password}}]]>@clientid/carbon?brokerlist='{% for url in apim.throttling.throttle_decision_endpoints %}{{url}}?{% if apim.throttling.jms.ssl is defined %}ssl='{{apim.throttling.jms.ssl}}'{% endif %}%26retries='5'%26connectdelay='50';{% endfor %}'</connectionfactory.TopicConnectionFactory>
                 {% elif apim.throttling.jms.username is defined %}
                 {% if apim.throttling.jms.password is defined %}
+                {% if apim.throttling.throttle_decision_endpoints is not defined %}
                 <connectionfactory.TopicConnectionFactory>amqp://<![CDATA[{{apim.throttling.jms.username}}]]>:<![CDATA[{{apim.throttling.jms.password}}]]>@clientid/carbon?brokerlist='tcp://${carbon.local.ip}:${jms.port}'</connectionfactory.TopicConnectionFactory>
+                {% else %}
+                <connectionfactory.TopicConnectionFactory>amqp://<![CDATA[{{apim.throttling.jms.username}}]]>:<![CDATA[{{apim.throttling.jms.password}}]]>@clientid/carbon?brokerlist='{% for url in apim.throttling.throttle_decision_endpoints %}{{url}}?{% if apim.throttling.jms.ssl is defined %}ssl='{{apim.throttling.jms.ssl}}'{% endif %}%26retries='5'%26connectdelay='50';{% endfor %}'</connectionfactory.TopicConnectionFactory>
+                {% endif %}
                 {% endif %}
                 {% else %}
                 <connectionfactory.TopicConnectionFactory>amqp://${admin.username}:${admin.password}@clientid/carbon?brokerlist='tcp://${carbon.local.ip}:${jms.port}'</connectionfactory.TopicConnectionFactory>
@@ -1212,6 +1295,69 @@
         <SkipRedeployingPolicies>RequestPreProcessorExecutionPlan{% for policy in apim.throttling.skip_redeploying_policies %}{{ "," if loop.first }}{{policy}}{{ "," if not loop.last }}{% endfor %}</SkipRedeployingPolicies>
         <EnablePolicyDeployment>{{apim.throttling.enable_policy_deployment}}</EnablePolicyDeployment>
         <EnablePolicyRecreationOnStartup>{{apim.throttling.enable_policy_recreation_on_startup}}</EnablePolicyRecreationOnStartup>
+
+        {% if apim.distributed_throttling is defined %}
+        <DistributedThrottleConfig>
+            {% if apim.distributed_throttling.enable is defined %}
+            <Enabled>{{apim.distributed_throttling.enable}}</Enabled>
+            {% endif %}
+            {% if apim.distributed_throttling.type is defined %}
+            <Type>{{apim.distributed_throttling.type}}</Type>
+            {% endif %}
+            {% if apim.distributed_throttling.sync_interval is defined %}
+            <SyncInterval>{{apim.distributed_throttling.sync_interval}}</SyncInterval>
+            {% endif %}
+            {% if apim.distributed_throttling.core_pool_size is defined %}
+            <CorePoolSize>{{apim.distributed_throttling.core_pool_size}}</CorePoolSize>
+            {% endif %}
+            {% if apim.distributed_throttling.keyvalue_store is defined %}
+            <KeyValueStoreOptions>
+                {% if apim.distributed_throttling.keyvalue_store.host is defined %}
+                <Host>{{apim.distributed_throttling.keyvalue_store.host}}</Host>
+                {% endif %}
+                {% if apim.distributed_throttling.keyvalue_store.port is defined %}
+                <Port>{{apim.distributed_throttling.keyvalue_store.port}}</Port>
+                {% endif %}
+                {% if apim.distributed_throttling.keyvalue_store.user is defined %}
+                <User>{{apim.distributed_throttling.keyvalue_store.user}}</User>
+                {% endif %}
+                {% if apim.distributed_throttling.keyvalue_store.password is defined %}
+                <Password>{{apim.distributed_throttling.keyvalue_store.password}}</Password>
+                {% endif %}
+                {% if apim.distributed_throttling.keyvalue_store.database_id is defined %}
+                <DatabaseId>{{apim.distributed_throttling.keyvalue_store.database_id}}</DatabaseId>
+                {% endif %}
+                {% if apim.distributed_throttling.keyvalue_store.connection_timeout is defined %}
+                <ConnectionTimeout>{{apim.distributed_throttling.keyvalue_store.connection_timeout}}</ConnectionTimeout>
+                {% endif %}
+                {% if apim.distributed_throttling.keyvalue_store.ssl is defined %}
+                <IsSslEnabled>{{apim.distributed_throttling.keyvalue_store.ssl}}</IsSslEnabled>
+                {% endif %}
+                {% if apim.distributed_throttling.keyvalue_store.max_total is defined %}
+                <MaxTotal>{{apim.distributed_throttling.keyvalue_store.max_total}}</MaxTotal>
+                {% endif %}
+                {% if apim.distributed_throttling.keyvalue_store.max_idle is defined %}
+                <MaxIdle>{{apim.distributed_throttling.keyvalue_store.max_idle}}</MaxIdle>
+                {% endif %}
+                {% if apim.distributed_throttling.keyvalue_store.min_idle is defined %}
+                <MinIdle>{{apim.distributed_throttling.keyvalue_store.min_idle}}</MinIdle>
+                {% endif %}
+                {% if apim.distributed_throttling.keyvalue_store.block_when_exhausted is defined %}
+                <BlockWhenExhausted>{{apim.distributed_throttling.keyvalue_store.block_when_exhausted}}</BlockWhenExhausted>
+                {% endif %}
+                {% if apim.distributed_throttling.keyvalue_store.test_while_idle is defined %}
+                <TestWhileIdle>{{apim.distributed_throttling.keyvalue_store.test_while_idle}}</TestWhileIdle>
+                {% endif %}
+                {% if apim.distributed_throttling.keyvalue_store.min_evictable_idle_time_millis is defined %}
+                <MinEvictableIdleTimeMillis>{{apim.distributed_throttling.keyvalue_store.min_evictable_idle_time_millis}}</MinEvictableIdleTimeMillis>
+                {% endif %}
+                {% if apim.distributed_throttling.keyvalue_store.time_between_eviction_runs_millis is defined %}
+                <TimeBetweenEvictionRunsMillis>{{apim.distributed_throttling.keyvalue_store.time_between_eviction_runs_millis}}</TimeBetweenEvictionRunsMillis>
+                {% endif %}
+            </KeyValueStoreOptions>
+            {% endif %}
+        </DistributedThrottleConfig>
+        {% endif %}
     </ThrottlingConfigurations>
 
     <WorkflowConfigurations>
@@ -1280,6 +1426,9 @@
              {% endif %}
              {% if apim.monetization.analytics_password is defined %}
                     <AnalyticsPassword>{{apim.monetization.analytics_password}}</AnalyticsPassword>
+             {% endif %}
+             {% if apim.monetization.analytics_protocol is defined %}
+                    <AnalyticsProtocol>{{apim.monetization.analytics_protocol}}</AnalyticsProtocol>
              {% endif %}
         </UsagePublisher>
         {% if apim.monetization.additional_attributes is defined %}
@@ -1416,12 +1565,51 @@
         {% endif %}
         <Properties>
             {% if apim.redis_config.pool_options is defined %}
+                {% if apim.redis_config.pool_options.max_total is defined %}
+                <MaxTotal>{{apim.redis_config.pool_options.max_total}}</MaxTotal>
+                {% endif %}
+                {% if apim.redis_config.pool_options.max_idle is defined %}
+                <MaxIdle>{{apim.redis_config.pool_options.max_idle}}</MaxIdle>
+                {% endif %}
+                {% if apim.redis_config.pool_options.min_idle is defined %}
+                <MinIdle>{{apim.redis_config.pool_options.min_idle}}</MinIdle>
+                {% endif %}
+                {% if apim.redis_config.pool_options.block_when_exhausted is defined %}
+                <BlockWhenExhausted>{{apim.redis_config.pool_options.block_when_exhausted}}</BlockWhenExhausted>
+                {% endif %}
+                {% if apim.redis_config.pool_options.test_on_borrow is defined %}
+                <TestOnBorrow>{{apim.redis_config.pool_options.test_on_borrow}}</TestOnBorrow>
+                {% endif %}
+                {% if apim.redis_config.pool_options.test_on_return is defined %}
+                <TestOnReturn>{{apim.redis_config.pool_options.test_on_return}}</TestOnReturn>
+                {% endif %}
+                {% if apim.redis_config.pool_options.test_while_idle is defined %}
+                <TestWhileIdle>{{apim.redis_config.pool_options.test_while_idle}}</TestWhileIdle>
+                {% endif %}
+                {% if apim.redis_config.pool_options.min_evictable_idle_time_millis is defined %}
+                <MinEvictableIdleTimeMillis>{{apim.redis_config.pool_options.min_evictable_idle_time_millis}}</MinEvictableIdleTimeMillis>
+                {% endif %}
+                {% if apim.redis_config.pool_options.time_between_eviction_runs_millis is defined %}
+                <TimeBetweenEvictionRunsMillis>{{apim.redis_config.pool_options.time_between_eviction_runs_millis}}</TimeBetweenEvictionRunsMillis>
+                {% endif %}
+        
             {% for property_name,property_value in apim.redis_config.pool_options.items() %}
              <{{property_name}}>{{property_value}}</{{property_name}}>
             {% endfor %}
             {% endif %}
         </Properties>
     </RedisConfig>
+    {% endif %}
+
+    {% if apim.solace_config is defined %}
+        <SolaceConfig>
+            {% if apim.solace_config.apim_api_endpoint is defined %}
+            <SolaceApimApiEndpoint>{{apim.solace_config.apim_api_endpoint}}</SolaceApimApiEndpoint>
+            {% endif %}
+            {% if apim.solace_config.token is defined %}
+            <SolaceToken>{{apim.solace_config.token}}</SolaceToken>
+            {% endif %}
+        </SolaceConfig>
     {% endif %}
 
     {% if apim.devportal.application_attributes is defined %}
@@ -1706,9 +1894,12 @@
             <Sequence>_auth_failure_handler_.xml</Sequence>
             <Sequence>_build_.xml</Sequence>
             <Sequence>_cors_request_handler_.xml</Sequence>
+            <Sequence>_extension_fault_handler_.xml</Sequence>
             <Sequence>dispatchSeq.xml</Sequence>
             <Sequence>fault.xml</Sequence>
+            <Sequence>guardrail_fault.xml</Sequence>
             <Sequence>_graphql_failure_handler_.xml</Sequence>
+            <Sequence>_mcp_failure_handler_.xml</Sequence>
             <Sequence>main.xml</Sequence>
             <Sequence>outDispatchSeq.xml</Sequence>
             <Sequence>_production_key_error_.xml</Sequence>
@@ -1743,6 +1934,10 @@
             {% endif %}
         </FileBasedApiContexts>
         <EnableOnDemandLoadingAPIS>{{apim.sync_runtime_artifacts.gateway.enable_on_demand_loading}}</EnableOnDemandLoadingAPIS>
+        <TenantLoading>
+           <Enable>{{apim.sync_runtime_artifacts.tenant_loading.enable}}</Enable>
+           <Tenants>{{apim.sync_runtime_artifacts.tenant_loading.tenants}}</Tenants>
+        </TenantLoading>
     </SyncRuntimeArtifactsGateway>
     {% endif %}
 
@@ -1765,6 +1960,7 @@
         <ExtensionListener>
             <Type>{{listener.type}}</Type>
             <ClassName>{{listener.class}}</ClassName>
+            <EnableExtensionFaultSequenceMediation>{{listener.enable_extension_fault_sequence_mediation}}</EnableExtensionFaultSequenceMediation>
         </ExtensionListener>
         {% endfor %}
     </ExtensionListeners>
@@ -1787,6 +1983,9 @@
                  <ExpiresIn>{{apim.mediator_config.oauth.expires_in}}</ExpiresIn>
                  <!-- Enable/Disable retry API calls with new access token when the access token is invalid. Default is true. -->
                  <EnableRetryCallWithNewToken>{{apim.mediator_config.oauth.enable_retry_call_with_new_token}}</EnableRetryCallWithNewToken>
+                 <ConnectionTimeoutDuration>{{apim.mediator_config.oauth.connection_timeout_duration}}</ConnectionTimeoutDuration>
+                 <ConnectionRequestTimeoutDuration>{{apim.mediator_config.oauth.connection_request_timeout_duration}}</ConnectionRequestTimeoutDuration>
+                 <SocketTimeoutDuration>{{apim.mediator_config.oauth.socket_timeout_duration}}</SocketTimeoutDuration>
              </OAuth>
           </MediatorConfigs>
       {% endif %}
@@ -1810,9 +2009,85 @@
                 {% endfor %}
             </CustomProperties>
         </PropertyConfigurations>
-      {% endif %}
+       {% endif %}
+
+      <TenantSharingConfigs>
+        {% for tenant_sharing_config in apim.tenant_sharing %}
+        <TenantSharingConfig type="{{tenant_sharing_config.type}}">
+            {% for key,value in tenant_sharing_config.properties.items() %}
+            <Property name="{{key}}">{{value}}</Property>
+            {% endfor %}
+        </TenantSharingConfig>
+        {% endfor %}
+      </TenantSharingConfigs>
 
       <Hashing>
         <HashingAlgorithm>{{apim.hashing.hashing_algorithm}}</HashingAlgorithm>
       </Hashing>
+
+      <AI>
+          <!-- Custom Guardrail Providers -->
+          <GuardrailProviders>
+              {% for guardrail_provider in apim.ai.guardrail_provider %}
+              <GuardrailProvider type="{{guardrail_provider.type}}">
+                  {% for key,value in guardrail_provider.properties.items() %}
+                  <Property name="{{key}}">{{value}}</Property>
+                  {% endfor %}
+              </GuardrailProvider>
+              {% endfor %}
+          </GuardrailProviders>
+
+          <EmbeddingProvider type="{{apim.ai.embedding_provider.type}}">
+              {% for key,value in apim.ai.embedding_provider.properties.items() %}
+              <Property name="{{key}}">{{value}}</Property>
+              {% endfor %}
+          </EmbeddingProvider>
+
+          <VectorDBProvider type="{{apim.ai.vector_db_provider.type}}">
+                {% for key,value in apim.ai.vector_db_provider.properties.items() %}
+                <Property name="{{key}}">{{value}}</Property>
+                {% endfor %}
+          </VectorDBProvider>
+      </AI>
+
+      <GatewayNotificationConfiguration>
+          <Enabled>{{apim.gateway_notification.enabled}}</Enabled>
+          <GatewayID>{{apim.gateway_notification.gateway_id}}</GatewayID>
+          <Heartbeat>
+              <NotifyIntervalSeconds>{{apim.gateway_notification.heartbeat.notify_interval}}</NotifyIntervalSeconds>
+          </Heartbeat>
+          <DeploymentAcknowledgement>
+              <BatchSize>{{apim.gateway_notification.deployment_ack.batch_size}}</BatchSize>
+              <BatchIntervalMillis>{{apim.gateway_notification.deployment_ack.batch_interval}}</BatchIntervalMillis>
+              <MaxRetryCount>{{apim.gateway_notification.deployment_ack.max_retry_count}}</MaxRetryCount>
+              <RetryDuration>{{apim.gateway_notification.deployment_ack.retry_duration}}</RetryDuration>
+              <RetryProgressionFactor>{{apim.gateway_notification.deployment_ack.retry_progression_factor}}</RetryProgressionFactor>
+              <BatchProcessorMinThread>{{apim.gateway_notification.deployment_ack.batch_processor_min_thread}}</BatchProcessorMinThread>
+              <BatchProcessorMaxThread>{{apim.gateway_notification.deployment_ack.batch_processor_max_thread}}</BatchProcessorMaxThread>
+              <BatchProcessorKeepAlive>{{apim.gateway_notification.deployment_ack.batch_processor_keep_alive}}</BatchProcessorKeepAlive>
+              <BatchProcessorQueueSize>{{apim.gateway_notification.deployment_ack.batch_processor_queue_size}}</BatchProcessorQueueSize>
+          </DeploymentAcknowledgement>
+          <Registration>
+              <MaxRetryCount>{{apim.gateway_notification.registration.max_retry_count}}</MaxRetryCount>
+              <RetryDuration>{{apim.gateway_notification.registration.retry_duration}}</RetryDuration>
+              <RetryProgressionFactor>{{apim.gateway_notification.registration.retry_progression_factor}}</RetryProgressionFactor>
+          </Registration>
+          <GatewayCleanup>
+              <ExpireTimeSeconds>{{apim.gateway_notification.cleanup.expiry_time}}</ExpireTimeSeconds>
+              <DataRetentionPeriodSeconds>{{apim.gateway_notification.cleanup.data_retention_period}}</DataRetentionPeriodSeconds>
+          </GatewayCleanup>
+      </GatewayNotificationConfiguration>
+
+      <!-- SynapseArtifactGenerator thread pool configuration -->
+      <SynapseArtifactGenerator>
+          <ThreadPool>
+              <CorePoolSize>{{apim.synapse_artifact_generator.thread_pool.core_pool_size}}</CorePoolSize>
+              <MaxPoolSize>{{apim.synapse_artifact_generator.thread_pool.max_pool_size}}</MaxPoolSize>
+              <KeepAliveTimeMs>{{apim.synapse_artifact_generator.thread_pool.keep_alive_time_ms}}</KeepAliveTimeMs>
+              <QueueCapacity>{{apim.synapse_artifact_generator.thread_pool.queue_capacity}}</QueueCapacity>
+          </ThreadPool>
+      </SynapseArtifactGenerator>
+
+      <EnableFailoverInLoadbalancedEndpoints>{{apim.endpoint_config.loadbalanced.enable_failover}}</EnableFailoverInLoadbalancedEndpoints>
+      <EnableCertificateManagementEventListening>{{apim.certificate_manager.events_enabled}}</EnableCertificateManagementEventListening>
 </APIManager>

@@ -7,7 +7,8 @@
       "ws",
       "wh",
       "sse",
-      "ai"
+      "ai",
+      "mcp"
     ],
     "gatewayFeatures": {
       "basic": [
@@ -59,7 +60,8 @@
         "loadBalanceAndFailoverConfigurations",
         "endpointSecurity",
         "typePRODUCTION",
-        "typeSANDBOX"
+        "typeSANDBOX",
+        "ws"
       ],
       "endpointSecurity": [
         "basicAuth",

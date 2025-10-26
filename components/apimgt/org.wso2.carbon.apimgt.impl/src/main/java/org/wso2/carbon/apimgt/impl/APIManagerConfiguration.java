@@ -16,6 +16,19 @@
 
 package org.wso2.carbon.apimgt.impl;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Set;
+import java.util.Stack;
 import org.apache.axiom.om.OMAttribute;
 import org.apache.axiom.om.OMElement;
 import org.apache.axiom.om.OMException;
@@ -29,36 +42,45 @@ import org.apache.commons.logging.LogFactory;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.wso2.carbon.apimgt.api.APIManagementException;
+import org.wso2.carbon.apimgt.api.UsedByMigrationClient;
 import org.wso2.carbon.apimgt.api.dto.GatewayVisibilityPermissionConfigurationDTO;
+import org.wso2.carbon.apimgt.api.dto.VectorDBProviderConfigurationDTO;
 import org.wso2.carbon.apimgt.api.model.APIPublisher;
 import org.wso2.carbon.apimgt.api.model.APIStore;
 import org.wso2.carbon.apimgt.api.model.Environment;
 import org.wso2.carbon.apimgt.api.model.VHost;
 import org.wso2.carbon.apimgt.common.gateway.configdto.HttpClientConfigurationDTO;
 import org.wso2.carbon.apimgt.impl.dto.APIMGovernanceConfigDTO;
+import org.wso2.carbon.apimgt.impl.dto.DistributedThrottleConfig;
+import org.wso2.carbon.apimgt.impl.dto.EventHubConfigurationDto;
+import org.wso2.carbon.apimgt.impl.dto.ExtendedJWTConfigurationDto;
+import org.wso2.carbon.apimgt.impl.dto.GatewayArtifactSynchronizerProperties;
+import org.wso2.carbon.apimgt.impl.dto.GatewayCleanupSkipList;
+import org.wso2.carbon.apimgt.impl.dto.LoadingTenants;
+import org.wso2.carbon.apimgt.impl.dto.OrgAccessControl;
+import org.wso2.carbon.apimgt.impl.dto.RedisConfig;
+import org.wso2.carbon.apimgt.impl.dto.TenantSharingConfigurationDTO;
+import org.wso2.carbon.apimgt.impl.dto.SolaceConfig;
+import org.wso2.carbon.apimgt.impl.dto.ThrottleProperties;
+import org.wso2.carbon.apimgt.impl.dto.TokenValidationDto;
+import org.wso2.carbon.apimgt.impl.dto.WorkflowProperties;
 import org.wso2.carbon.apimgt.impl.dto.ai.AIAPIConfigurationsDTO;
 import org.wso2.carbon.apimgt.impl.dto.ai.ApiChatConfigurationDTO;
 import org.wso2.carbon.apimgt.impl.dto.ai.DesignAssistantConfigurationDTO;
+import org.wso2.carbon.apimgt.api.dto.EmbeddingProviderConfigurationDTO;
+import org.wso2.carbon.apimgt.api.dto.GuardrailProviderConfigurationDTO;
 import org.wso2.carbon.apimgt.impl.dto.ai.MarketplaceAssistantConfigurationDTO;
 import org.wso2.carbon.apimgt.common.gateway.dto.ClaimMappingDto;
 import org.wso2.carbon.apimgt.common.gateway.dto.JWKSConfigurationDTO;
 import org.wso2.carbon.apimgt.common.gateway.dto.TokenIssuerDto;
 import org.wso2.carbon.apimgt.common.gateway.extensionlistener.ExtensionListener;
-import org.wso2.carbon.apimgt.impl.dto.EventHubConfigurationDto;
-import org.wso2.carbon.apimgt.impl.dto.ExtendedJWTConfigurationDto;
-import org.wso2.carbon.apimgt.impl.dto.GatewayArtifactSynchronizerProperties;
-import org.wso2.carbon.apimgt.impl.dto.GatewayCleanupSkipList;
-import org.wso2.carbon.apimgt.impl.dto.OrgAccessControl;
-import org.wso2.carbon.apimgt.impl.dto.RedisConfig;
-import org.wso2.carbon.apimgt.impl.dto.ThrottleProperties;
-import org.wso2.carbon.apimgt.impl.dto.TokenValidationDto;
-import org.wso2.carbon.apimgt.impl.dto.WorkflowProperties;
 import org.wso2.carbon.apimgt.impl.monetization.MonetizationConfigurationDto;
 import org.wso2.carbon.apimgt.impl.recommendationmgt.RecommendationEnvironment;
 import org.wso2.carbon.apimgt.impl.utils.APIUtil;
 import org.wso2.securevault.SecretResolver;
 import org.wso2.securevault.SecretResolverFactory;
 import org.wso2.securevault.commons.MiscellaneousUtil;
+import org.wso2.carbon.apimgt.impl.dto.GatewayNotificationConfiguration;
 
 import java.io.File;
 import java.io.IOException;
@@ -66,23 +88,12 @@ import java.io.InputStream;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-import java.util.Set;
-import java.util.Stack;
 import java.util.concurrent.ConcurrentHashMap;
 
 import javax.xml.namespace.QName;
 import javax.xml.stream.XMLStreamException;
 
+import static org.wso2.carbon.apimgt.impl.APIConstants.API_RUNTIME_READ_ONLY;
 import static org.wso2.carbon.apimgt.impl.APIConstants.SHA_256;
 
 /**
@@ -134,14 +145,22 @@ public class APIManagerConfiguration {
 
     private WorkflowProperties workflowProperties = new WorkflowProperties();
     private Map<String, Environment> apiGatewayEnvironments = new LinkedHashMap<String, Environment>();
+    private final Map<String, GuardrailProviderConfigurationDTO> guardrailProviders = new HashMap<>();
+    private final Map<String, TenantSharingConfigurationDTO> tenantSharingConfigurations = new HashMap<>();
+    private final EmbeddingProviderConfigurationDTO embeddingProviderConfigurationDTO =
+            new EmbeddingProviderConfigurationDTO();
+    private final VectorDBProviderConfigurationDTO vectorDBProviderConfigurationDTO =
+            new VectorDBProviderConfigurationDTO();
     private static Properties realtimeNotifierProperties;
     private static Properties persistentNotifierProperties;
     private static Map<String, String> analyticsProperties;
     private static Map<String, String> persistenceProperties = new HashMap<String, String>();
     private static String tokenRevocationClassName;
     private static String certificateBoundAccessEnabled;
+    private DistributedThrottleConfig distributedThrottleConfig = new DistributedThrottleConfig();
     private GatewayCleanupSkipList gatewayCleanupSkipList = new GatewayCleanupSkipList();
     private RedisConfig redisConfig = new RedisConfig();
+    private SolaceConfig solaceConfig = new SolaceConfig();
     private OrgAccessControl orgAccessControl = new OrgAccessControl();
     public OrgAccessControl getOrgAccessControl() {
         return orgAccessControl;
@@ -158,6 +177,9 @@ public class APIManagerConfiguration {
     private boolean enableAiConfiguration;
     private String hashingAlgorithm = SHA_256;
     private boolean isTransactionCounterEnabled;
+    private static boolean isMCPSupportEnabled = true;
+    private static String devportalMode = APIConstants.DEVPORTAL_MODE_HYBRID;
+    private static volatile boolean isRuntimeReadOnly = false;
 
     public Map<String, List<String>> getRestApiJWTAuthAudiences() {
         return restApiJWTAuthAudiences;
@@ -168,7 +190,22 @@ public class APIManagerConfiguration {
         return extensionListenerMap;
     }
 
+    public boolean isRuntimeReadOnly() {
+        return isRuntimeReadOnly;
+    }
+
+    public void setRuntimeReadOnly(boolean runtimeReadOnly) {
+        this.isRuntimeReadOnly = runtimeReadOnly;
+    }
+
     private Map<String, ExtensionListener> extensionListenerMap = new HashMap<>();
+
+    public Map<String, Boolean> getDoMediateExtensionFaultSequenceMap() {
+
+        return doMediateExtensionFaultSequenceMap;
+    }
+
+    private Map<String, Boolean> doMediateExtensionFaultSequenceMap = new HashMap<>();
 
     public static Properties getRealtimeTokenRevocationNotifierProperties() {
 
@@ -219,9 +256,10 @@ public class APIManagerConfiguration {
         return loginConfiguration;
     }
 
-    private GatewayArtifactSynchronizerProperties gatewayArtifactSynchronizerProperties = new GatewayArtifactSynchronizerProperties();;
+    private final GatewayArtifactSynchronizerProperties gatewayArtifactSynchronizerProperties = new GatewayArtifactSynchronizerProperties();;
 
     private JSONArray customProperties = new JSONArray();
+    private GatewayNotificationConfiguration gatewayNotificationConfiguration = new GatewayNotificationConfiguration();
 
     /**
      * Returns the configuration of the Identity Provider.
@@ -316,6 +354,7 @@ public class APIManagerConfiguration {
         return null;
     }
 
+    @UsedByMigrationClient
     public String getFirstProperty(String key) {
 
         List<String> value = configuration.get(key);
@@ -349,7 +388,9 @@ public class APIManagerConfiguration {
             OMElement element = (OMElement) childElements.next();
             String localName = element.getLocalName();
             nameStack.push(localName);
-            if ("APIKeyValidator".equals(localName)) {
+            if (API_RUNTIME_READ_ONLY.equals(localName)) {
+                    isRuntimeReadOnly = Boolean.parseBoolean(element.getText());
+            } else if ("APIKeyValidator".equals(localName)) {
                 OMElement keyManagerServiceUrl = element.getFirstChildWithName(new QName(APIConstants.AUTHSERVER_URL));
                 if (keyManagerServiceUrl != null) {
                     String serviceUrl = keyManagerServiceUrl.getText();
@@ -397,6 +438,7 @@ public class APIManagerConfiguration {
                     OMElement propertyElem = (OMElement) analyticsPropertiesIterator.next();
                     String name = propertyElem.getAttributeValue(new QName("name"));
                     String value = propertyElem.getText();
+                    value = MiscellaneousUtil.resolve(value, secretResolver);
                     if ("keystore_location".equals(name) || "truststore_location".equals(name)) {
                         analyticsProps.put(name, APIUtil.replaceSystemProperty(value));
                     } else {
@@ -437,7 +479,7 @@ public class APIManagerConfiguration {
                     String value = propertyElem.getText();
                     persistenceProps.put(name, value);
                 }
-                
+
                 persistenceProperties = persistenceProps;
             } else if (APIConstants.REDIS_CONFIG.equals(localName)) {
                 OMElement redisHost = element.getFirstChildWithName(new QName(APIConstants.CONFIG_REDIS_HOST));
@@ -463,7 +505,7 @@ public class APIManagerConfiguration {
                             " configuration under [apim.redis_config] section in deployment.toml");
                 }
                 if (minGatewayCount != null) {
-                    redisConfig.setMinGatewayCount(Integer.parseInt(minGatewayCount.getText()));
+                    redisConfig.setMinGatewayCount(Long.parseLong(minGatewayCount.getText()));
                 }
                 if (keyLockRetrievalTimeout != null) {
                     redisConfig.setKeyLockRetrievalTimeout(Integer.parseInt(keyLockRetrievalTimeout.getText()));
@@ -512,6 +554,116 @@ public class APIManagerConfiguration {
                         }
                     }
                 }
+            } else if (APIConstants.DISTRIBUTED_THROTTLE_CONFIG.equals(localName)) {
+                OMElement enabledElement = element.getFirstChildWithName(new QName(APIConstants.DISTRIBUTED_THROTTLE_ENABLED));
+                OMElement typeElement = element.getFirstChildWithName(new QName(APIConstants.DISTRIBUTED_THROTTLE_TYPE));
+                OMElement syncIntervalElement = element.getFirstChildWithName(new QName(APIConstants.DISTRIBUTED_THROTTLE_SYNC_INTERVAL));
+                OMElement corePoolSizeElement = element.getFirstChildWithName(new QName(APIConstants.DISTRIBUTED_THROTTLE_CORE_POOL_SIZE));
+                OMElement propertiesElement = element.getFirstChildWithName(new QName(APIConstants.DISTRIBUTED_THROTTLE_PROPERTIES));
+
+                if (enabledElement != null) {
+                    distributedThrottleConfig.setEnabled(Boolean.parseBoolean(enabledElement.getText()));
+                }
+                if (typeElement != null) {
+                    distributedThrottleConfig.setType(typeElement.getText());
+                }
+                if (syncIntervalElement != null) {
+                    try {
+                        distributedThrottleConfig.setSyncInterval(Integer.parseInt(syncIntervalElement.getText()));
+                    } catch (NumberFormatException e) {
+                        log.warn("Invalid sync interval specified", e);
+                    }
+                }
+                if (corePoolSizeElement != null) {
+                    try {
+                        distributedThrottleConfig.setCorePoolSize(Integer.parseInt(corePoolSizeElement.getText()));
+                    } catch (NumberFormatException e) {
+                        log.warn("Invalid core pool size specified", e);
+                    }
+                }
+                if (propertiesElement != null) {
+                    OMElement host = propertiesElement.getFirstChildWithName(new QName(APIConstants.DISTRIBUTED_THROTTLE_HOST));
+                    OMElement port = propertiesElement.getFirstChildWithName(new QName(APIConstants.DISTRIBUTED_THROTTLE_PORT));
+                    OMElement user = propertiesElement.getFirstChildWithName(new QName(APIConstants.DISTRIBUTED_THROTTLE_USER));
+                    OMElement password = propertiesElement.getFirstChildWithName(new QName(APIConstants.DISTRIBUTED_THROTTLE_PASSWORD));
+                    OMElement databaseId = propertiesElement.getFirstChildWithName(new QName(APIConstants.DISTRIBUTED_THROTTLE_DATABASE_ID));
+                    OMElement connectionTimeout = propertiesElement.getFirstChildWithName(new QName(APIConstants.DISTRIBUTED_THROTTLE_CONNECTION_TIMEOUT));
+                    OMElement isSslEnabled = propertiesElement.getFirstChildWithName(new QName(APIConstants.DISTRIBUTED_THROTTLE_IS_SSL_ENABLED));
+
+                    if (host != null && StringUtils.isNotBlank(host.getText())) {
+                        distributedThrottleConfig.setHost(host.getText());
+                    } else {
+                        log.warn("DistributedThrottleConfig: KeyValueStoreOptions.Host is not specified");
+                    }
+                    if (port != null && StringUtils.isNotBlank(port.getText())) {
+                        try {
+                            distributedThrottleConfig.setPort(Integer.parseInt(port.getText()));
+                        } catch (NumberFormatException e) {
+                            log.warn("DistributedThrottleConfig: invalid Port value: " + port.getText(), e);
+                        }
+                    } else {
+                        log.warn("DistributedThrottleConfig: KeyValueStoreOptions.Port is not specified");
+                    }
+
+                    if (user != null) {
+                        distributedThrottleConfig.setUser(user.getText());
+                    }
+                    if (password != null) {
+                        distributedThrottleConfig.setPassword(MiscellaneousUtil.resolve(password, secretResolver).toCharArray());
+                    }
+
+                    if (databaseId != null && StringUtils.isNotBlank(databaseId.getText())) {
+                        try {
+                            distributedThrottleConfig.setDatabaseId(Integer.parseInt(databaseId.getText().trim()));
+                        } catch (NumberFormatException e) {
+                            log.warn("Invalid DatabaseId value: " + databaseId.getText(), e);
+                        }
+                    }
+                    if (connectionTimeout != null) {
+                        try {
+                            distributedThrottleConfig.setConnectionTimeout(Integer.parseInt(connectionTimeout.getText().trim()));
+                        } catch (NumberFormatException e) {
+                            log.warn("Invalid connectionTimeout value: " + connectionTimeout.getText(), e);
+                        }                    }
+                    if (isSslEnabled != null) {
+                        distributedThrottleConfig.setSslEnabled(Boolean.parseBoolean(isSslEnabled.getText().trim()));
+                    }
+
+                    Iterator<OMElement> properties = propertiesElement.getChildElements();
+                    if (properties != null) {
+                        while (properties.hasNext()) {
+                            OMElement propertyNode = properties.next();
+                            if (APIConstants.DISTRIBUTED_THROTTLE_MAX_TOTAL.equals(propertyNode.getLocalName())) {
+                                distributedThrottleConfig.setMaxTotal(Integer.parseInt(propertyNode.getText()));
+                            } else if (APIConstants.DISTRIBUTED_THROTTLE_MAX_IDLE.equals(propertyNode.getLocalName())) {
+                                distributedThrottleConfig.setMaxIdle(Integer.parseInt(propertyNode.getText()));
+                            } else if (APIConstants.DISTRIBUTED_THROTTLE_MIN_IDLE.equals(propertyNode.getLocalName())) {
+                                distributedThrottleConfig.setMinIdle(Integer.parseInt(propertyNode.getText()));
+                            } else if (APIConstants.DISTRIBUTED_THROTTLE_TEST_ON_BORROW.equals(propertyNode.getLocalName())) {
+                                distributedThrottleConfig.setTestOnBorrow(Boolean.parseBoolean(propertyNode.getText()));
+                            } else if (APIConstants.DISTRIBUTED_THROTTLE_TEST_ON_RETURN.equals(propertyNode.getLocalName())) {
+                                distributedThrottleConfig.setTestOnReturn(Boolean.parseBoolean(propertyNode.getText()));
+                            } else if (APIConstants.DISTRIBUTED_THROTTLE_TEST_WHILE_IDLE.equals(propertyNode.getLocalName())) {
+                                distributedThrottleConfig.setTestWhileIdle(Boolean.parseBoolean(propertyNode.getText()));
+                            } else if (APIConstants.DISTRIBUTED_THROTTLE_BLOCK_WHEN_EXHAUSTED.equals(propertyNode.getLocalName())) {
+                                distributedThrottleConfig.setBlockWhenExhausted(Boolean.parseBoolean(propertyNode.getText()));
+                            } else if (APIConstants.DISTRIBUTED_THROTTLE_MIN_EVICTABLE_IDLE_TIME_IN_MILLIS.equals(propertyNode.getLocalName())) {
+                                distributedThrottleConfig.setMinEvictableIdleTimeMillis(Long.parseLong(propertyNode.getText()));
+                            } else if (APIConstants.DISTRIBUTED_THROTTLE_TIME_BETWEEN_EVICTION_RUNS_IN_MILLIS.equals(propertyNode.getLocalName())) {
+                                distributedThrottleConfig.setTimeBetweenEvictionRunsMillis(Long.parseLong(propertyNode.getText()));
+                            } else if (APIConstants.DISTRIBUTED_THROTTLE_NUM_TESTS_PER_EVICTION_RUNS.equals(propertyNode.getLocalName())) {
+                                distributedThrottleConfig.setNumTestsPerEvictionRun(Integer.parseInt(propertyNode.getText()));
+                            }
+                        }
+                    }
+                }
+            } else if (APIConstants.SOLACE_CONFIG.equals(localName)) {
+                OMElement solaceApimApiEndpoint =
+                        element.getFirstChildWithName(new QName(APIConstants.SOLACE_APIM_API_ENDPOINT));
+                OMElement solaceToken = element.getFirstChildWithName(new QName(APIConstants.SOLACE_TOKEN));
+                solaceConfig.setEnabled(true);
+                solaceConfig.setSolaceApimApiEndpoint(solaceApimApiEndpoint.getText());
+                solaceConfig.setSolaceToken(solaceToken.getText());
             } else if (elementHasText(element)) {
                 String key = getKey(nameStack);
                 String value = MiscellaneousUtil.resolve(element, secretResolver);
@@ -688,12 +840,55 @@ public class APIManagerConfiguration {
                 setApiChatConfiguration(element);
             } else if (APIConstants.AI.DESIGN_ASSISTANT.equals(localName)) {
                 setDesignAssistantConfiguration(element);
-            } else if (APIConstants.AI.AI_CONFIGURATION.equals(localName)){
+            } else if (APIConstants.AI.AI_CONFIGURATION.equals(localName)) {
                 setAiConfiguration(element);
+            } else if (APIConstants.AI.MCP.equals(localName)) {
+                setMCPConfigurations(element);
             } else if (APIConstants.TokenValidationConstants.TOKEN_VALIDATION_CONFIG.equals(localName)) {
                 setTokenValidation(element);
             } else if (APIConstants.ORG_BASED_ACCESS_CONTROL.equals(localName)) {
                 setOrgBasedAccessControlConfigs(element);
+            } else if (APIConstants.API_STORE_TAG.equals(localName)) {
+                setDevportalConfigurations(element);
+            } else if (APIConstants.TENANT_SHARING_CONFIGS.equals(localName)) {
+                    // Iterate through each <TenantSharingConfig>
+                    for (Iterator<?> tenantSharingConfigs = element.getChildElements(); tenantSharingConfigs.hasNext(); ) {
+                        OMElement tenantSharingConfigElement = (OMElement) tenantSharingConfigs.next();
+
+                        if (APIConstants.TENANT_SHARING_CONFIG.equals(tenantSharingConfigElement.getLocalName())) {
+                            // Get the tenantSharingConfigs type
+                            String type = tenantSharingConfigElement.getAttributeValue(
+                                    new QName(APIConstants.TENANT_SHARING_CONFIG_TYPE));
+                            if (type == null || type.isEmpty()) {
+                                continue; // skip if no type defined
+                            }
+
+                            Map<String, String> propertiesMap = new HashMap<>();
+
+                            // Iterate through each <Property>
+                            for (Iterator<?> props = tenantSharingConfigElement.getChildElements(); props.hasNext(); ) {
+                                OMElement prop = (OMElement) props.next();
+
+                                if (APIConstants.TENANT_SHARING_CONFIG_PROPERTY.equals(prop.getLocalName())) {
+                                    String key = prop.getAttributeValue(
+                                            new QName(APIConstants.TENANT_SHARING_CONFIG_PROPERTY_KEY));
+                                    String value = MiscellaneousUtil.resolve(prop, secretResolver);
+
+                                    if (key != null && !key.isEmpty()) {
+                                        propertiesMap.put(key, value);
+                                    }
+                                }
+                            }
+
+                            // Add to the main map
+                            TenantSharingConfigurationDTO tenantSharingConfigurationDTO =
+                                    new TenantSharingConfigurationDTO();
+                            tenantSharingConfigurationDTO.setType(type);
+                            tenantSharingConfigurationDTO.setProperties(propertiesMap);
+                            tenantSharingConfigurations.put(type, tenantSharingConfigurationDTO);
+                        }
+                    }
+
             } else if (APIConstants.HASHING.equals(localName)) {
                 setHashingAlgorithm(element);
             } else if (APIConstants.TransactionCounter.TRANSACTIONCOUNTER.equals(localName)) {
@@ -703,9 +898,133 @@ public class APIManagerConfiguration {
                 }
             } else if (APIConstants.APIMGovernance.GOVERNANCE_CONFIG.equals(localName)) {
                 setAPIMGovernanceConfigurations(element);
+            } else if (APIConstants.AI.AI.equals(localName)) {
+                for (Iterator<?> aiChildren = element.getChildElements(); aiChildren.hasNext(); ) {
+                    OMElement aiChildElement = (OMElement) aiChildren.next();
+
+                    if (APIConstants.AI.GUARDRAIL_PROVIDERS.equals(aiChildElement.getLocalName())) {
+                        // Iterate through each <EmbeddingProvider>
+                        for (Iterator<?> providers = aiChildElement.getChildElements(); providers.hasNext(); ) {
+                            OMElement providerElement = (OMElement) providers.next();
+
+                            if (APIConstants.AI.GUARDRAIL_PROVIDER.equals(providerElement.getLocalName())) {
+                                // Get the provider type
+                                String type = providerElement.getAttributeValue(
+                                        new QName(APIConstants.AI.GUARDRAIL_PROVIDER_TYPE));
+                                if (type == null || type.isEmpty()) {
+                                    continue; // skip if no type defined
+                                }
+
+                                Map<String, String> propertiesMap = new HashMap<>();
+
+                                // Iterate through each <Property>
+                                for (Iterator<?> props = providerElement.getChildElements(); props.hasNext(); ) {
+                                    OMElement prop = (OMElement) props.next();
+
+                                    if (APIConstants.AI.GUARDRAIL_PROVIDER_PROPERTY.equals(prop.getLocalName())) {
+                                        String key = prop.getAttributeValue(
+                                                new QName(APIConstants.AI.GUARDRAIL_PROVIDER_PROPERTY_KEY));
+                                        String value = MiscellaneousUtil.resolve(prop, secretResolver);
+
+                                        if (key != null && !key.isEmpty()) {
+                                            propertiesMap.put(key, value);
+                                        }
+                                    }
+                                }
+
+                                // Add to the main map
+                                GuardrailProviderConfigurationDTO guardrailProviderConfigurationDTO =
+                                        new GuardrailProviderConfigurationDTO();
+                                guardrailProviderConfigurationDTO.setType(type);
+                                guardrailProviderConfigurationDTO.setProperties(propertiesMap);
+                                guardrailProviders.put(type, guardrailProviderConfigurationDTO);
+                            }
+                        }
+                    }
+
+                    if (APIConstants.AI.EMBEDDING_PROVIDER.equals(aiChildElement.getLocalName())) {
+                        // Get the provider type
+                        String type = aiChildElement.getAttributeValue(
+                                new QName(APIConstants.AI.EMBEDDING_PROVIDER_TYPE));
+                        if (type == null || type.isEmpty()) {
+                            continue; // skip if no type defined
+                        }
+
+                        Map<String, String> propertiesMap = new HashMap<>();
+
+                        // Iterate through each <Property>
+                        for (Iterator<?> props = aiChildElement.getChildElements(); props.hasNext(); ) {
+                            OMElement prop = (OMElement) props.next();
+
+                            if (APIConstants.AI.EMBEDDING_PROVIDER_PROPERTY.equals(prop.getLocalName())) {
+                                String key = prop.getAttributeValue(
+                                        new QName(APIConstants.AI.EMBEDDING_PROVIDER_PROPERTY_KEY));
+                                String value = MiscellaneousUtil.resolve(prop, secretResolver);
+
+                                if (key != null && !key.isEmpty()) {
+                                    propertiesMap.put(key, value);
+                                }
+                            }
+                        }
+
+                        this.embeddingProviderConfigurationDTO.setType(type);
+                        this.embeddingProviderConfigurationDTO.setProperties(propertiesMap);
+                    }
+
+                    if (APIConstants.AI.VECTOR_DB_PROVIDER.equals(aiChildElement.getLocalName())) {
+                        // Get the vector DB type
+                        String type = aiChildElement.getAttributeValue(
+                                new QName(APIConstants.AI.VECTOR_DB_PROVIDER_TYPE));
+                        if (type == null || type.isEmpty()) {
+                            continue; // skip if no type defined
+                        }
+
+                        Map<String, String> propertiesMap = new HashMap<>();
+
+                        // Iterate through each <Property>
+                        for (Iterator<?> props = aiChildElement.getChildElements(); props.hasNext(); ) {
+                            OMElement prop = (OMElement) props.next();
+
+                            if (APIConstants.AI.VECTOR_DB_PROVIDER_PROPERTY.equals(prop.getLocalName())) {
+                                String key = prop.getAttributeValue(
+                                        new QName(APIConstants.AI.VECTOR_DB_PROVIDER_PROPERTY_KEY));
+                                String value = MiscellaneousUtil.resolve(prop, secretResolver);
+
+                                if (key != null && !key.isEmpty()) {
+                                    propertiesMap.put(key, value);
+                                }
+                            }
+                        }
+
+                        this.vectorDBProviderConfigurationDTO.setType(type);
+                        this.vectorDBProviderConfigurationDTO.setProperties(propertiesMap);
+                    }
+                }
+            } else if (APIConstants.GatewayNotification.GATEWAY_NOTIFICATION_CONFIGURATION.equals(localName)) {
+                setGatewayNotificationConfiguration(element);
             }
             readChildElements(element, nameStack);
             nameStack.pop();
+        }
+    }
+
+    private void setDevportalConfigurations(OMElement omElement) {
+
+        if (omElement == null) {
+            log.debug("Devportal configuration element is null. Skipping configuration parsing.");
+            return;
+        }
+        OMElement devportalModeOmElement = omElement.getFirstChildWithName(new QName(APIConstants.DEVPORTAL_MODE));
+        if (devportalModeOmElement != null && StringUtils.isNotEmpty(devportalModeOmElement.getText())) {
+            String devportalModeStr = devportalModeOmElement.getText().trim().toUpperCase();
+            if (APIConstants.DEVPORTAL_MODES.contains(devportalModeStr)) {
+                devportalMode = devportalModeStr;
+            } else {
+                log.warn("Invalid Devportal mode '" + devportalModeStr + "'. Falling back to default: "
+                        + devportalMode);
+            }
+        } else if (log.isDebugEnabled()) {
+            log.debug("Devportal mode is not specified. Using default: " + devportalMode);
         }
     }
 
@@ -715,7 +1034,7 @@ public class APIManagerConfiguration {
         if (orgEnableElement != null) {
             orgAccessControl.setEnabled(Boolean.parseBoolean(orgEnableElement.getText()));
         }
-        
+
         OMElement orgNameElement =
                 element.getFirstChildWithName(new QName(APIConstants.ORG_BASED_ACCESS_CONTROL_ORG_NAME_CLAIM));
         if (orgNameElement != null) {
@@ -727,7 +1046,7 @@ public class APIManagerConfiguration {
             orgAccessControl.setOrgIdLocalClaim(orgIdElement.getText());
         }
     }
-        
+
     public boolean getTransactionCounterProperties() {
         return isTransactionCounterEnabled;
     }
@@ -1128,6 +1447,26 @@ public class APIManagerConfiguration {
         return apiGatewayEnvironments;
     }
 
+    public EmbeddingProviderConfigurationDTO getEmbeddingProvider() {
+
+        return embeddingProviderConfigurationDTO;
+    }
+
+    public VectorDBProviderConfigurationDTO getVectorDBProvider() {
+
+        return vectorDBProviderConfigurationDTO;
+    }
+
+    public GuardrailProviderConfigurationDTO getGuardrailProvider(String type) {
+
+        return guardrailProviders.get(type);
+    }
+
+    public TenantSharingConfigurationDTO getTenantSharingConfiguration(String type) {
+
+        return tenantSharingConfigurations.get(type);
+    }
+
     public RecommendationEnvironment getApiRecommendationEnvironment() {
 
         return recommendationEnvironment;
@@ -1238,7 +1577,7 @@ public class APIManagerConfiguration {
             String dcrEPPassword = MiscellaneousUtil.resolve(dcrEPPasswordOmElement, secretResolver);
             dcrEPPassword = APIUtil.replaceSystemProperty(dcrEPPassword);
             workflowProperties.setdCREndpointPassword(dcrEPPassword);
-            
+
             OMElement listTasksElement = workflowConfigurationElement
                     .getFirstChildWithName(new QName(APIConstants.WorkflowConfigConstants.LIST_PENDING_TASKS));
             if (listTasksElement != null) {
@@ -1311,6 +1650,19 @@ public class APIManagerConfiguration {
             if (skipRedeployingPoliciesElement != null) {
                 throttleProperties.setSkipRedeployingPolicies(skipRedeployingPoliciesElement
                         .getText().split(APIConstants.DELEM_COMMA));
+            }
+            // Check skip deploy throttle policies
+            OMElement skipDeployingPoliciesElement = throttleConfigurationElement
+                    .getFirstChildWithName(new QName(APIConstants.AdvancedThrottleConstants
+                            .SKIP_DEPLOYING_POLICIES));
+            if (skipDeployingPoliciesElement != null) {
+                throttleProperties.setSkipDeployingPolicies(
+                        Arrays.asList(skipDeployingPoliciesElement.getText().split(APIConstants.DELEM_COMMA)));
+                if (log.isDebugEnabled()) {
+                    if (throttleProperties.getSkipDeployingPolicies() != null) {
+                        log.debug("Skip deploying throttle policies: " + throttleProperties.getSkipDeployingPolicies());
+                    }
+                }
             }
             OMElement enablePolicyDeployElement = throttleConfigurationElement
                     .getFirstChildWithName(new QName(APIConstants.AdvancedThrottleConstants.ENABLE_POLICY_DEPLOYMENT));
@@ -1658,32 +2010,52 @@ public class APIManagerConfiguration {
                 ThrottleProperties.PolicyDeployer policyDeployerConfiguration = new
                         ThrottleProperties
                                 .PolicyDeployer();
-                if (policyDeployerConnectionElement != null) {
-                    OMElement policyDeployerConnectionEnabledElement = policyDeployerConnectionElement
-                            .getFirstChildWithName(new QName(APIConstants.AdvancedThrottleConstants.ENABLED));
-                    policyDeployerConfiguration.setEnabled(JavaUtils.isTrueExplicitly
-                            (policyDeployerConnectionEnabledElement.getText()));
-                    OMElement policyDeployerServiceUrlElement = policyDeployerConnectionElement
-                            .getFirstChildWithName(new QName
-                                    (APIConstants.AdvancedThrottleConstants.SERVICE_URL));
-                    if (policyDeployerServiceUrlElement != null) {
-                        policyDeployerConfiguration.setServiceUrl(APIUtil.replaceSystemProperty
-                                (policyDeployerServiceUrlElement.getText()));
-                    }
-                    OMElement policyDeployerServiceServiceUsernameElement = policyDeployerConnectionElement
-                            .getFirstChildWithName(new QName
-                                    (APIConstants.AdvancedThrottleConstants.USERNAME));
-                    if (policyDeployerServiceServiceUsernameElement != null) {
-                        policyDeployerConfiguration.setUsername(APIUtil.replaceSystemProperty
-                                (policyDeployerServiceServiceUsernameElement.getText()));
-                    }
-                    OMElement policyDeployerServicePasswordElement = policyDeployerConnectionElement
-                            .getFirstChildWithName(new QName(APIConstants.AdvancedThrottleConstants.PASSWORD));
-                    String policyDeployerServicePassword = MiscellaneousUtil.
-                            resolve(policyDeployerServicePasswordElement, secretResolver);
-                    policyDeployerConfiguration.setPassword(APIUtil.replaceSystemProperty
-                            (policyDeployerServicePassword));
+            if (policyDeployerConnectionElement != null) {
+                OMElement policyDeployerConnectionEnabledElement = policyDeployerConnectionElement.getFirstChildWithName(new QName(APIConstants.AdvancedThrottleConstants.ENABLED));
+                policyDeployerConfiguration.setEnabled(JavaUtils.isTrueExplicitly(policyDeployerConnectionEnabledElement.getText()));
+                OMElement policyDeployerServiceUrlElement = policyDeployerConnectionElement.getFirstChildWithName(new QName(APIConstants.AdvancedThrottleConstants.SERVICE_URL));
+                if (policyDeployerServiceUrlElement != null) {
+                    policyDeployerConfiguration.setServiceUrl(APIUtil.replaceSystemProperty(policyDeployerServiceUrlElement.getText()));
                 }
+                OMElement policyDeployerServiceServiceUsernameElement = policyDeployerConnectionElement.getFirstChildWithName(new QName(APIConstants.AdvancedThrottleConstants.USERNAME));
+                if (policyDeployerServiceServiceUsernameElement != null) {
+                    policyDeployerConfiguration.setUsername(APIUtil.replaceSystemProperty(policyDeployerServiceServiceUsernameElement.getText()));
+                }
+                OMElement policyDeployerServicePasswordElement = policyDeployerConnectionElement.getFirstChildWithName(new QName(APIConstants.AdvancedThrottleConstants.PASSWORD));
+                String policyDeployerServicePassword = MiscellaneousUtil.resolve(policyDeployerServicePasswordElement, secretResolver);
+                policyDeployerConfiguration.setPassword(APIUtil.replaceSystemProperty(policyDeployerServicePassword));
+                OMElement tenantLoadingOmelement = policyDeployerConnectionElement.getFirstChildWithName(new QName(APIConstants.GatewayArtifactSynchronizer.TENANT_LOADING));
+                if (tenantLoadingOmelement != null) {
+                    OMElement enableTenantLoading = tenantLoadingOmelement.getFirstChildWithName(new QName(APIConstants.GatewayArtifactSynchronizer.ENABLE_TENANT_LOADING));
+                    if (enableTenantLoading != null) {
+                        policyDeployerConfiguration.setTenantLoading(Boolean.parseBoolean(enableTenantLoading.getText()));
+                    }
+                    OMElement tenantSToLoadElement = tenantLoadingOmelement.getFirstChildWithName(
+                            new QName(APIConstants.GatewayArtifactSynchronizer.TENANT_LOADING_TENANTS));
+                    if (tenantSToLoadElement != null && StringUtils.isNotEmpty(tenantSToLoadElement.getText())) {
+                        String[] tenantsToLoad = tenantSToLoadElement.getText().split(",");
+                        LoadingTenants loadingTenants = new LoadingTenants();
+                        for (String tenant : tenantsToLoad) {
+                            tenant = tenant.trim();
+                            if (tenant.equals("*")) {
+                                loadingTenants.setIncludeAllTenants(true);
+                            } else if (tenant.contains("!")) {
+                                if (tenant.contains("*")) {
+                                    throw new IllegalArgumentException(tenant + " is not a valid tenant domain");
+                                }
+                                loadingTenants.getExcludingTenants().add(tenant.replace("!", ""));
+                            } else {
+                                loadingTenants.getIncludingTenants().add(tenant);
+                            }
+                        }
+                        if (loadingTenants.isIncludeAllTenants()) {
+                            loadingTenants.getIncludingTenants().clear();
+                        }
+                        loadingTenants.getIncludingTenants().removeAll(loadingTenants.getExcludingTenants());
+                        policyDeployerConfiguration.setLoadingTenants(loadingTenants);
+                    }
+                }
+            }
                 throttleProperties.setPolicyDeployer(policyDeployerConfiguration);
 
                 //Configuring Block Condition retriever configuration
@@ -1795,6 +2167,20 @@ public class APIManagerConfiguration {
                     omElement.getFirstChildWithName(new QName(APIConstants.ENABLE_USER_CLAIMS));
             if (jwtUserClaimsElement != null) {
                 jwtConfigurationDto.setEnableUserClaims(Boolean.parseBoolean(jwtUserClaimsElement.getText()));
+                OMElement isBindFederatedUserClaimsForOpaque =
+                        omElement.getFirstChildWithName(new QName(APIConstants.BINDING_FEDERATED_USER_CLAIMS_FOR_OPAQUE));
+                if (isBindFederatedUserClaimsForOpaque != null) {
+                    boolean bindValue = Boolean.parseBoolean(isBindFederatedUserClaimsForOpaque.getText());
+                    jwtConfigurationDto.setBindFederatedUserClaimsForOpaque(bindValue);
+                    if (log.isDebugEnabled()) {
+                        log.debug("BindFederatedUserClaimsForOpaque configuration element found. Value = " +
+                                bindValue);
+                    }
+                } else {
+                    jwtConfigurationDto.setBindFederatedUserClaimsForOpaque(false);
+                    log.debug("BindFederatedUserClaimsForOpaque configuration element not found. " +
+                            "Defaulting to false.");
+                }
             }
             OMElement enableTenantBaseSigningElement =
                     omElement.getFirstChildWithName(new QName(APIConstants.ENABLE_TENANT_BASE_SIGNING));
@@ -1874,6 +2260,11 @@ public class APIManagerConfiguration {
         return redisConfig;
     }
 
+    public DistributedThrottleConfig getDistributedThrottleConfig() {
+
+        return distributedThrottleConfig;
+    }
+
     /**
      * To populate Monetization configurations
      *
@@ -1890,7 +2281,8 @@ public class APIManagerConfiguration {
         OMElement usagePublisherElement =
                 element.getFirstChildWithName(new QName(APIConstants.Monetization.USAGE_PUBLISHER_CONFIG));
         if (usagePublisherElement != null) {
-            if (analyticsProperties.get("type") != null && !analyticsProperties.get("type").trim().equals("")) {
+            if (analyticsProperties.get("type") != null && !analyticsProperties.get("type").trim().equals("")
+                    && !analyticsProperties.get("type").equals("choreo")) {
                 OMElement analyticsHost = usagePublisherElement.getFirstChildWithName(
                         new QName(APIConstants.Monetization.ANALYTICS_HOST));
 
@@ -1925,6 +2317,13 @@ public class APIManagerConfiguration {
 
                 if (analyticsIndexName != null) {
                     monetizationConfigurationDto.setAnalyticsIndexName(analyticsIndexName.getText());
+                }
+
+                OMElement analyticsProtocol = usagePublisherElement.getFirstChildWithName(
+                        new QName(APIConstants.Monetization.ANALYTICS_PROTOCOL));
+
+                if (analyticsProtocol != null) {
+                    monetizationConfigurationDto.setAnalyticsProtocol(analyticsProtocol.getText());
                 }
             } else {
                 OMElement choreoInsightAPIEndpointElement = usagePublisherElement.getFirstChildWithName(
@@ -2436,9 +2835,45 @@ public class APIManagerConfiguration {
             log.debug("Gateway artifact synchronizer Event waiting time not set.");
         }
         OMElement enableEagerLoading =
-                omElement.getFirstChildWithName(new QName(APIConstants.GatewayArtifactSynchronizer.EnableOnDemandLoadingAPIS));
-        if (enableEagerLoading != null){
-            gatewayArtifactSynchronizerProperties.setOnDemandLoading(Boolean.parseBoolean(enableEagerLoading.getText()));
+                omElement.getFirstChildWithName(
+                        new QName(APIConstants.GatewayArtifactSynchronizer.EnableOnDemandLoadingAPIS));
+        if (enableEagerLoading != null) {
+            gatewayArtifactSynchronizerProperties.setOnDemandLoading(
+                    Boolean.parseBoolean(enableEagerLoading.getText()));
+        }
+        OMElement tenantLoadingOMElement =
+                omElement.getFirstChildWithName(new QName(APIConstants.GatewayArtifactSynchronizer.TENANT_LOADING));
+        if (tenantLoadingOMElement != null) {
+            OMElement enableTenantLoading = tenantLoadingOMElement.getFirstChildWithName(
+                    new QName(APIConstants.GatewayArtifactSynchronizer.ENABLE_TENANT_LOADING));
+            if (enableTenantLoading != null) {
+                gatewayArtifactSynchronizerProperties.setTenantLoading(
+                        Boolean.parseBoolean(enableTenantLoading.getText()));
+            }
+            OMElement tenantSToLoadElement = tenantLoadingOMElement.getFirstChildWithName(
+                    new QName(APIConstants.GatewayArtifactSynchronizer.TENANT_LOADING_TENANTS));
+            if (tenantSToLoadElement != null && StringUtils.isNotEmpty(tenantSToLoadElement.getText())) {
+                String[] tenantsToLoad = tenantSToLoadElement.getText().split(",");
+                LoadingTenants loadingTenants = new LoadingTenants();
+                for (String tenant : tenantsToLoad) {
+                    tenant = tenant.trim();
+                    if (tenant.equals("*")) {
+                        loadingTenants.setIncludeAllTenants(true);
+                    } else if (tenant.contains("!")) {
+                        if (tenant.contains("*")) {
+                            throw new IllegalArgumentException(tenant + " is not a valid tenant domain");
+                        }
+                        loadingTenants.getExcludingTenants().add(tenant.replace("!", ""));
+                    } else {
+                        loadingTenants.getIncludingTenants().add(tenant);
+                    }
+                }
+                if (loadingTenants.isIncludeAllTenants()) {
+                    loadingTenants.getIncludingTenants().clear();
+                }
+                loadingTenants.getIncludingTenants().removeAll(loadingTenants.getExcludingTenants());
+                gatewayArtifactSynchronizerProperties.setLoadingTenants(loadingTenants);
+            }
         }
     }
 
@@ -2458,7 +2893,7 @@ public class APIManagerConfiguration {
     public static Map<String, String> getAnalyticsMaskProperties() {
         return analyticsMaskProps;
     }
-    
+
     public static Map<String, String> getPersistenceProperties() {
         return persistenceProperties;
     }
@@ -2481,11 +2916,22 @@ public class APIManagerConfiguration {
                     listenerElement
                             .getFirstChildWithName(new QName(
                                     APIConstants.ExtensionListenerConstants.EXTENSION_LISTENER_CLASS_NAME));
+            OMElement enableExtensionFaultSequenceMediationElement =
+                    listenerElement
+                            .getFirstChildWithName(new QName(APIConstants
+                                    .ExtensionListenerConstants.EXTENSION_LISTENER_DO_MEDIATE_EXTENSION_FAULT_SEQUENCE));
             if (listenerTypeElement != null && listenerClassElement != null) {
                 String listenerClass = listenerClassElement.getText();
+                boolean enableExtensionFaultSequenceMediation = false;
+                if (enableExtensionFaultSequenceMediationElement != null) {
+                    enableExtensionFaultSequenceMediation =
+                            Boolean.parseBoolean(enableExtensionFaultSequenceMediationElement.getText());
+                }
                 try {
                     ExtensionListener extensionListener = (ExtensionListener) APIUtil.getClassInstance(listenerClass);
                     extensionListenerMap.put(listenerTypeElement.getText().toUpperCase(), extensionListener);
+                    doMediateExtensionFaultSequenceMap.put(listenerTypeElement.getText().toUpperCase(),
+                            enableExtensionFaultSequenceMediation);
                 } catch (InstantiationException e) {
                     log.error("Error while instantiating class " + listenerClass, e);
                 } catch (IllegalAccessException e) {
@@ -2664,6 +3110,49 @@ public class APIManagerConfiguration {
     public static AIAPIConfigurationsDTO getAiApiConfigurationsDTO() {
 
         return aiapiConfigurationsDTO;
+    }
+
+    /**
+     * Set MCP Portal Configuration
+     *
+     * @param omElement XML Config
+     */
+    private void setMCPConfigurations(OMElement omElement) {
+
+        if (omElement == null) {
+            log.debug("MCP Server configuration element is null. Skipping configuration parsing.");
+            return;
+        }
+        OMElement mcpServerConfigElement =
+                omElement.getFirstChildWithName(new QName(APIConstants.AI.MCP_SUPPORT_ENABLED));
+        if (mcpServerConfigElement != null
+                && StringUtils.isNotEmpty(mcpServerConfigElement.getText())) {
+            isMCPSupportEnabled = Boolean.parseBoolean(mcpServerConfigElement.getText().trim());
+            System.setProperty(APIConstants.ENABLE_MCP_SUPPORT, Boolean.toString(isMCPSupportEnabled));
+        }
+    }
+
+    /**
+     * Returns whether the MCP Portal is enabled or not.
+     *
+     * @return true if MCP Portal is enabled, false otherwise.
+     */
+    public boolean isMCPSupportEnabled() {
+
+        return isMCPSupportEnabled;
+    }
+
+    /**
+     * Set Devportal Mode
+     *
+     * @return Devportal mode.
+     */
+    public String getDevportalMode() {
+
+        if (isMCPSupportEnabled()) {
+            return devportalMode;
+        }
+        return APIConstants.DEVPORTAL_MODE_API_ONLY;
     }
 
     private void setHashingAlgorithm(OMElement omElement) {
@@ -2853,5 +3342,141 @@ public class APIManagerConfiguration {
      */
     public APIMGovernanceConfigDTO getAPIMGovernanceConfigurationDto() {
         return apimGovConfigurationDto;
+    }
+
+    private void setGatewayNotificationConfiguration(org.apache.axiom.om.OMElement omElement) {
+        org.apache.axiom.om.OMElement enabledElem = omElement.getFirstChildWithName(
+                new QName(APIConstants.GatewayNotification.GATEWAY_NOTIFICATION_ENABLED));
+        if (enabledElem != null) {
+            gatewayNotificationConfiguration.setEnabled(Boolean.parseBoolean(enabledElem.getText()));
+        }
+        org.apache.axiom.om.OMElement gatewayIdElem = omElement.getFirstChildWithName(
+                new QName(APIConstants.GatewayNotification.GATEWAY_IDENTIFIER));
+        if (gatewayIdElem != null) {
+            gatewayNotificationConfiguration.setGatewayID(gatewayIdElem.getText());
+        }
+
+        org.apache.axiom.om.OMElement heartbeatElem = omElement.getFirstChildWithName(
+                new QName(APIConstants.GatewayNotification.HEARTBEAT));
+        if (heartbeatElem != null) {
+            org.apache.axiom.om.OMElement intervalElem = heartbeatElem.getFirstChildWithName(
+                    new QName(APIConstants.GatewayNotification.NOTIFY_INTERVAL_SECONDS));
+            if (intervalElem != null) {
+                gatewayNotificationConfiguration.getHeartbeat().setNotifyIntervalSeconds(
+                        Integer.parseInt(intervalElem.getText()));
+            }
+        }
+
+        org.apache.axiom.om.OMElement deploymentAckElem = omElement.getFirstChildWithName(
+                new QName(APIConstants.GatewayNotification.DEPLOYMENT_ACKNOWLEDGEMENT));
+        if (deploymentAckElem != null) {
+            org.apache.axiom.om.OMElement batchSizeElem = deploymentAckElem.getFirstChildWithName(
+                    new QName(APIConstants.GatewayNotification.BATCH_SIZE));
+            if (batchSizeElem != null) {
+                gatewayNotificationConfiguration.getDeploymentAcknowledgement().setBatchSize(
+                        Integer.parseInt(batchSizeElem.getText()));
+            }
+            org.apache.axiom.om.OMElement batchIntervalElem = deploymentAckElem.getFirstChildWithName(
+                    new QName(APIConstants.GatewayNotification.BATCH_INTERVAL_MILLIS));
+            if (batchIntervalElem != null) {
+                gatewayNotificationConfiguration.getDeploymentAcknowledgement().setBatchIntervalMillis(
+                        Long.parseLong(batchIntervalElem.getText()));
+            }
+            org.apache.axiom.om.OMElement maxRetryCountElem = deploymentAckElem.getFirstChildWithName(
+                    new QName(APIConstants.GatewayNotification.MAX_RETRY_COUNT));
+            if (maxRetryCountElem != null) {
+                gatewayNotificationConfiguration.getDeploymentAcknowledgement().setMaxRetryCount(
+                        Integer.parseInt(maxRetryCountElem.getText()));
+            }
+            org.apache.axiom.om.OMElement retryDurationElem = deploymentAckElem.getFirstChildWithName(
+                    new QName(APIConstants.GatewayNotification.RETRY_DURATION));
+            if (retryDurationElem != null) {
+                gatewayNotificationConfiguration.getDeploymentAcknowledgement().setRetryDuration(
+                        Long.parseLong(retryDurationElem.getText()));
+            }
+            org.apache.axiom.om.OMElement retryProgressionFactorElem = deploymentAckElem.getFirstChildWithName(
+                    new QName(APIConstants.GatewayNotification.RETRY_PROGRESSION_FACTOR));
+            if (retryProgressionFactorElem != null) {
+                gatewayNotificationConfiguration.getDeploymentAcknowledgement().setRetryProgressionFactor(
+                        Double.parseDouble(retryProgressionFactorElem.getText()));
+            }
+            org.apache.axiom.om.OMElement batchProcessorMinThreadElem = deploymentAckElem.getFirstChildWithName(
+                    new QName(APIConstants.GatewayNotification.BATCH_PROCESSOR_MIN_THREAD));
+            if (batchProcessorMinThreadElem != null) {
+                gatewayNotificationConfiguration.getDeploymentAcknowledgement().setBatchProcessorMinThread(
+                        Integer.parseInt(batchProcessorMinThreadElem.getText()));
+            }
+            org.apache.axiom.om.OMElement batchProcessorMaxThreadElem = deploymentAckElem.getFirstChildWithName(
+                    new QName(APIConstants.GatewayNotification.BATCH_PROCESSOR_MAX_THREAD));
+            if (batchProcessorMaxThreadElem != null) {
+                gatewayNotificationConfiguration.getDeploymentAcknowledgement().setBatchProcessorMaxThread(
+                        Integer.parseInt(batchProcessorMaxThreadElem.getText()));
+            }
+            org.apache.axiom.om.OMElement batchProcessorKeepAliveElem = deploymentAckElem.getFirstChildWithName(
+                    new QName(APIConstants.GatewayNotification.BATCH_PROCESSOR_KEEP_ALIVE));
+            if (batchProcessorKeepAliveElem != null) {
+                gatewayNotificationConfiguration.getDeploymentAcknowledgement().setBatchProcessorKeepAlive(
+                        Long.parseLong(batchProcessorKeepAliveElem.getText()));
+            }
+            org.apache.axiom.om.OMElement batchProcessorQueueSizeElem = deploymentAckElem.getFirstChildWithName(
+                    new QName(APIConstants.GatewayNotification.BATCH_PROCESSOR_QUEUE_SIZE));
+            if (batchProcessorQueueSizeElem != null) {
+                gatewayNotificationConfiguration.getDeploymentAcknowledgement().setBatchProcessorQueueSize(
+                        Integer.parseInt(batchProcessorQueueSizeElem.getText()));
+            }
+        }
+
+        org.apache.axiom.om.OMElement registrationElem = omElement.getFirstChildWithName(
+                new QName(APIConstants.GatewayNotification.REGISTRATION));
+        if (registrationElem != null) {
+            org.apache.axiom.om.OMElement maxRetryCountElem = registrationElem.getFirstChildWithName(
+                    new QName(APIConstants.GatewayNotification.MAX_RETRY_COUNT));
+            if (maxRetryCountElem != null) {
+                gatewayNotificationConfiguration.getRegistration().setMaxRetryCount(
+                        Integer.parseInt(maxRetryCountElem.getText()));
+            }
+            org.apache.axiom.om.OMElement retryDurationElem = registrationElem.getFirstChildWithName(
+                    new QName(APIConstants.GatewayNotification.RETRY_DURATION));
+            if (retryDurationElem != null) {
+                gatewayNotificationConfiguration.getRegistration().setRetryDuration(
+                        Long.parseLong(retryDurationElem.getText()));
+            }
+            org.apache.axiom.om.OMElement retryProgressionFactorElem = registrationElem.getFirstChildWithName(
+                    new QName(APIConstants.GatewayNotification.RETRY_PROGRESSION_FACTOR));
+            if (retryProgressionFactorElem != null) {
+                gatewayNotificationConfiguration.getRegistration().setRetryProgressionFactor(
+                        Double.parseDouble(retryProgressionFactorElem.getText()));
+            }
+        }
+
+        org.apache.axiom.om.OMElement cleanupElem = omElement.getFirstChildWithName(
+                new QName(APIConstants.GatewayNotification.GATEWAY_CLEANUP));
+        if (cleanupElem != null) {
+            org.apache.axiom.om.OMElement expireElem = cleanupElem.getFirstChildWithName(
+                    new QName(APIConstants.GatewayNotification.EXPIRE_TIME_SECONDS));
+            if (expireElem != null) {
+                gatewayNotificationConfiguration.getGatewayCleanupConfiguration().setExpireTimeSeconds(
+                        Integer.parseInt(expireElem.getText()));
+            }
+            org.apache.axiom.om.OMElement retentionElem = cleanupElem.getFirstChildWithName(
+                    new QName(APIConstants.GatewayNotification.DATA_RETENTION_PERIOD_SECONDS));
+            if (retentionElem != null) {
+                gatewayNotificationConfiguration.getGatewayCleanupConfiguration().setDataRetentionPeriodSeconds(
+                        Integer.parseInt(retentionElem.getText()));
+            }
+        }
+    }
+
+    public GatewayNotificationConfiguration getGatewayNotificationConfiguration() {
+        return gatewayNotificationConfiguration;
+    }
+
+    /**
+     * Get Solace Config
+     *
+     * @return SolaceConfig
+     */
+    public SolaceConfig getSolaceConfig() {
+        return solaceConfig;
     }
 }

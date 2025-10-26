@@ -49,6 +49,7 @@ import org.wso2.carbon.apimgt.impl.dao.ApiMgtDAO;
 import org.wso2.carbon.apimgt.impl.dao.EnvironmentSpecificAPIPropertyDAO;
 import org.wso2.carbon.apimgt.impl.dao.LabelsDAO;
 import org.wso2.carbon.apimgt.impl.dao.ScopesDAO;
+import org.wso2.carbon.apimgt.impl.dto.KeyManagerDto;
 import org.wso2.carbon.apimgt.impl.dto.ThrottleProperties;
 import org.wso2.carbon.apimgt.impl.dto.WorkflowDTO;
 import org.wso2.carbon.apimgt.impl.factory.KeyManagerHolder;
@@ -213,6 +214,10 @@ public abstract class AbstractAPIManager implements APIManager {
      */
     public APIInfo getAPIInfoByUUID(String id) throws APIManagementException {
         return apiMgtDAO.getAPIInfoByUUID(id);
+    }
+
+    public APIInfo getAPIInfoByUUID(String id, String apiType) throws APIManagementException {
+        return apiMgtDAO.getAPIInfoByUUID(id, apiType);
     }
 
 
@@ -549,6 +554,57 @@ public abstract class AbstractAPIManager implements APIManager {
     }
 
     /**
+     * Check whether the given scope key is already available in any of the Key Managers
+     *
+     * @param scopeKey candidate scope key
+     * @param tenantDomain tenant domain
+     * @return true if the scope key is already available
+     */
+    @Override
+    public boolean isScopeKeyExistInKeyManager(String scopeKey, String tenantDomain) {
+        if (log.isDebugEnabled()) {
+            log.debug("Checking if scope key '" + scopeKey + "' exists in any Key Manager for tenant: " + tenantDomain);
+        }
+        Map<String, KeyManagerDto> tenantKeyManagers = KeyManagerHolder.getGlobalAndTenantKeyManagers(tenantDomain);
+        for (Map.Entry<String, KeyManagerDto> keyManagerDtoEntry : tenantKeyManagers.entrySet()) {
+            KeyManager keyManager = keyManagerDtoEntry.getValue().getKeyManager();
+            if (keyManager == null) {
+                log.warn("Key Manager instance is null for: " + keyManagerDtoEntry.getKey());
+                continue;
+            }
+            boolean scopeExistsInKeyManager = false;
+
+            try {
+                scopeExistsInKeyManager = keyManager.isScopeExists(scopeKey);
+            } catch (APIManagementException e) {
+                log.error("Error while checking for scope key in Key Manager: "
+                        + keyManagerDtoEntry.getKey(), e);
+            }
+
+            if (!scopeExistsInKeyManager) {
+                try {
+                    Map<String, Scope> allScopes = keyManager.getAllScopes();
+                    scopeExistsInKeyManager = allScopes != null && allScopes.containsKey(scopeKey);
+                } catch (APIManagementException e) {
+                    log.warn("Error while listing scopes from Key Manager: " + keyManagerDtoEntry.getKey(), e);
+                }
+            }
+            if (scopeExistsInKeyManager) {
+                if (log.isDebugEnabled()) {
+                    log.debug("Scope key '" + scopeKey + "' is already defined in Key Manager: "
+                            + keyManagerDtoEntry.getKey());
+                }
+                return true;
+
+            }
+            if (log.isDebugEnabled()) {
+                log.debug("Scope key '" + scopeKey + "' does not exist in any Key Manager for tenant: " + tenantDomain);
+            }
+        }
+        return false;
+    }
+
+    /**
      * Check whether the given scope key is already assigned to any API under given tenant.
      *
      * @param scopeKey     Scope Key
@@ -605,8 +661,11 @@ public abstract class AbstractAPIManager implements APIManager {
         return apiMgtDAO.isApiNameWithDifferentCaseExist(apiName, tenantName, organization);
     }
 
-    public void addSubscriber(String username, String groupingId)
-            throws APIManagementException {
+    public void addSubscriber(String username, String groupingId) throws APIManagementException {
+        addSubscriber(username, groupingId, null);
+    }
+
+    public void addSubscriber(String username, String groupingId, String organization) throws APIManagementException {
 
         Subscriber subscriber = new Subscriber(username);
         subscriber.setSubscribedDate(new Date());
@@ -619,8 +678,28 @@ public abstract class AbstractAPIManager implements APIManager {
             if (APIUtil.isDefaultApplicationCreationEnabled() &&
                     !APIUtil.isDefaultApplicationCreationDisabledForTenant(getTenantDomain(username))) {
                 // Add a default application once subscriber is added
-                addDefaultApplicationForSubscriber(subscriber);
+                addDefaultApplicationForSubscriber(subscriber, organization);
             }
+        } catch (APIManagementException e) {
+            String msg = "Error while adding the subscriber " + subscriber.getName();
+            throw new APIManagementException(msg, e);
+        } catch (org.wso2.carbon.user.api.UserStoreException e) {
+            String msg = "Error while adding the subscriber " + subscriber.getName();
+            throw new APIManagementException(msg, e);
+        }
+    }
+
+    public void addSubscriberOnly(String username, String groupingId)
+            throws APIManagementException {
+
+        Subscriber subscriber = new Subscriber(username);
+        subscriber.setSubscribedDate(new Date());
+        try {
+            int tenantId = getTenantManager()
+                    .getTenantId(getTenantDomain(username));
+            subscriber.setEmail(StringUtils.EMPTY);
+            subscriber.setTenantId(tenantId);
+            apiMgtDAO.addSubscriber(subscriber, groupingId);
         } catch (APIManagementException e) {
             String msg = "Error while adding the subscriber " + subscriber.getName();
             throw new APIManagementException(msg, e);
@@ -641,7 +720,8 @@ public abstract class AbstractAPIManager implements APIManager {
      * @param subscriber Subscriber
      * @throws APIManagementException if an error occurs while adding default application
      */
-    private void addDefaultApplicationForSubscriber(Subscriber subscriber) throws APIManagementException {
+    private void addDefaultApplicationForSubscriber(Subscriber subscriber, String organization)
+            throws APIManagementException {
 
         Application defaultApp = new Application(APIConstants.DEFAULT_APPLICATION_NAME, subscriber);
         defaultApp.setTier(APIUtil.getDefaultApplicationLevelPolicy(subscriber.getTenantId()));
@@ -650,6 +730,9 @@ public abstract class AbstractAPIManager implements APIManager {
         defaultApp.setTokenType(APIConstants.TOKEN_TYPE_JWT);
         defaultApp.setUUID(UUID.randomUUID().toString());
         defaultApp.setDescription(APIConstants.DEFAULT_APPLICATION_DESCRIPTION);
+        if (organization != null) {
+            defaultApp.setSubOrganization(organization);
+        }
         int applicationId = apiMgtDAO.addApplication(defaultApp, subscriber.getName(), tenantDomain);
 
         ApplicationEvent applicationEvent = new ApplicationEvent(UUID.randomUUID().toString(),
@@ -911,6 +994,13 @@ public abstract class AbstractAPIManager implements APIManager {
 
     public boolean isDuplicateContextTemplateMatchingOrganization(String contextTemplate, String organization) throws APIManagementException {
         return apiMgtDAO.isDuplicateContextTemplateMatchesOrganization(contextTemplate, organization);
+    }
+
+    public boolean isDuplicateContextTemplateMatchingOrganizationAndGatewayVendor(String contextTemplate, String orgId,
+                                                                                  String gatewayVendor)
+            throws APIManagementException {
+        return apiMgtDAO.isDuplicateContextTemplateMatchesOrganizationAndGatewayVendor(contextTemplate, orgId,
+                gatewayVendor);
     }
 
     @Override
@@ -1196,7 +1286,7 @@ public abstract class AbstractAPIManager implements APIManager {
         return apiMgtDAO.getAPIProductResourceMappings(productIdentifier);
     }
 
-    protected void populateAPIInformation(String uuid, String organization, API api)
+    protected void  populateAPIInformation(String uuid, String organization, API api)
             throws APIManagementException, OASPersistenceException, ParseException, AsyncSpecPersistenceException {
         String username = CarbonContext.getThreadLocalCarbonContext().getUsername();
         //UUID
@@ -1232,7 +1322,7 @@ public abstract class AbstractAPIManager implements APIManager {
         int internalId = apiMgtDAO.getAPIID(currentApiUuid);
         apiId.setId(internalId);
         apiMgtDAO.setServiceStatusInfoToAPI(api, internalId);
-        if (api.getGatewayVendor() == null) {
+        if (api.getGatewayVendor() == null || "null".equals(api.getGatewayVendor())) {
             String gatewayVendor = apiMgtDAO.getGatewayVendorByAPIUUID(uuid);
             if (gatewayVendor == null) {
                 gatewayVendor = APIConstants.WSO2_GATEWAY_ENVIRONMENT;
@@ -1289,7 +1379,6 @@ public abstract class AbstractAPIManager implements APIManager {
         if (api.getType() != null && APIConstants.APITransportType.GRAPHQL.toString().equals(api.getType())) {
             api.setGraphQLSchema(getGraphqlSchemaDefinition(uuid, organization));
         }
-
         JsonElement paths = null;
         if (resourceConfigsString != null) {
             JsonObject resourceConfigsJSON = new Gson().fromJson(resourceConfigsString, JsonObject.class);
@@ -1334,7 +1423,6 @@ public abstract class AbstractAPIManager implements APIManager {
                 }
             }
         }
-
         if (APIConstants.IMPLEMENTATION_TYPE_INLINE.equalsIgnoreCase(api.getImplementation())) {
             for (URITemplate template : uriTemplates) {
                 template.setMediationScript(template.getAggregatedMediationScript());

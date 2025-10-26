@@ -29,25 +29,45 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.cxf.jaxrs.ext.multipart.Attachment;
 import org.apache.cxf.jaxrs.ext.multipart.ContentDisposition;
+import org.apache.tika.Tika;
 import org.apache.tika.config.TikaConfig;
 import org.apache.tika.io.TikaInputStream;
 import org.apache.tika.metadata.Metadata;
+import org.apache.tika.mime.MimeType;
+import org.apache.tika.mime.MimeTypeException;
+import org.apache.tika.mime.MimeTypes;
+import org.wso2.carbon.apimgt.api.APIComplianceException;
+import org.wso2.carbon.apimgt.api.APIDefinitionValidationResponse;
 import org.wso2.carbon.apimgt.api.APIManagementException;
 import org.wso2.carbon.apimgt.api.APIProvider;
+import org.wso2.carbon.apimgt.api.ExceptionCodes;
+import org.wso2.carbon.apimgt.api.model.API;
 import org.wso2.carbon.apimgt.api.model.Documentation;
 import org.wso2.carbon.apimgt.api.model.OperationPolicyData;
+import org.wso2.carbon.apimgt.api.model.ServiceEntry;
+import org.wso2.carbon.apimgt.governance.api.model.APIMGovernableState;
+import org.wso2.carbon.apimgt.governance.api.model.ArtifactType;
 import org.wso2.carbon.apimgt.impl.APIConstants;
 import org.wso2.carbon.apimgt.impl.importexport.APIImportExportException;
 import org.wso2.carbon.apimgt.impl.importexport.ExportFormat;
 import org.wso2.carbon.apimgt.impl.importexport.ImportExportConstants;
 import org.wso2.carbon.apimgt.impl.importexport.utils.CommonUtil;
+import org.wso2.carbon.apimgt.impl.restapi.publisher.ApisApiServiceImplUtils;
 import org.wso2.carbon.apimgt.impl.utils.APIUtil;
 import org.wso2.carbon.apimgt.rest.api.common.RestApiCommonUtil;
 import org.wso2.carbon.apimgt.rest.api.common.RestApiConstants;
+import org.wso2.carbon.apimgt.rest.api.common.dto.ErrorDTO;
+import org.wso2.carbon.apimgt.rest.api.publisher.v1.common.mappings.APIDTOTypeWrapper;
+import org.wso2.carbon.apimgt.rest.api.publisher.v1.common.mappings.APIMappingUtil;
 import org.wso2.carbon.apimgt.rest.api.publisher.v1.common.mappings.PublisherCommonUtils;
 import org.wso2.carbon.apimgt.rest.api.publisher.v1.dto.APIDTO;
+import org.wso2.carbon.apimgt.rest.api.publisher.v1.dto.MCPServerDTO;
+import org.wso2.carbon.apimgt.rest.api.publisher.v1.dto.MCPServerValidationResponseDTO;
+import org.wso2.carbon.apimgt.rest.api.publisher.v1.dto.OpenAPIDefinitionValidationResponseDTO;
 import org.wso2.carbon.apimgt.rest.api.publisher.v1.dto.OrganizationPoliciesDTO;
+import org.wso2.carbon.apimgt.rest.api.publisher.v1.dto.SecurityInfoDTO;
 import org.wso2.carbon.apimgt.rest.api.util.utils.RestApiUtil;
+import org.wso2.carbon.apimgt.spec.parser.definitions.OAS3Parser;
 import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
 
@@ -60,8 +80,13 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
+
+import static org.wso2.carbon.apimgt.impl.APIConstants.GOVERNANCE_COMPLIANCE_ERROR_MESSAGE;
 
 public class RestApiPublisherUtils {
 
@@ -92,7 +117,6 @@ public class RestApiPublisherUtils {
             RestApiUtil.handleInternalServerError("Failed to add content to the document " + documentId, log);
         }
 
-        InputStream docInputStream = null;
         try {
             ContentDisposition contentDisposition = fileDetails.getContentDisposition();
             String filename = contentDisposition.getParameter(RestApiConstants.CONTENT_DISPOSITION_FILENAME);
@@ -102,23 +126,25 @@ public class RestApiPublisherUtils {
                         "Couldn't find the name of the uploaded file for the document " + documentId + ". Using name '"
                                 + filename + "'");
             }
+
             //APIIdentifier apiIdentifier = APIMappingUtil
             //        .getAPIIdentifierFromUUID(apiId, tenantDomain);
 
             Path resolvedPath = resolveFilePath(docFile.getAbsolutePath(), filename);
 
             RestApiUtil.transferFile(inputStream, resolvedPath.getFileName().toString(), resolvedPath.getParent().toString());
-            docInputStream = new FileInputStream(resolvedPath.toString());
-            String mediaType = fileDetails.getHeader(RestApiConstants.HEADER_CONTENT_TYPE);
-            mediaType = mediaType == null ? RestApiConstants.APPLICATION_OCTET_STREAM : mediaType;
-            PublisherCommonUtils
-                    .addDocumentationContentForFile(docInputStream, mediaType, filename, apiProvider, apiId,
-                            documentId, organization);
-            docFile.delete();
+            byte[] fileBytes = FileUtils.readFileToByteArray(new File(resolvedPath.toString()));
+            String mediaType = detectAndValidateMediaType(fileBytes, filename);
+            try (InputStream uploadStream = new ByteArrayInputStream(fileBytes)) {
+                PublisherCommonUtils.addDocumentationContentForFile(uploadStream, mediaType, filename, apiProvider,
+                        apiId, documentId, organization);
+            }
         } catch (FileNotFoundException e) {
             RestApiUtil.handleInternalServerError("Unable to read the file from path ", e, log);
+        } catch (IOException e) {
+            RestApiUtil.handleInternalServerError("Error processing file upload for document: " + documentId, e, log);
         } finally {
-            IOUtils.closeQuietly(docInputStream);
+            FileUtils.deleteQuietly(docFile);
         }
     }
 
@@ -181,7 +207,6 @@ public class RestApiPublisherUtils {
             RestApiUtil.handleInternalServerError("Failed to add content to the document " + documentId, log);
         }
 
-        InputStream docInputStream = null;
         try {
             ContentDisposition contentDisposition = fileDetails.getContentDisposition();
             String filename = contentDisposition.getParameter(RestApiConstants.CONTENT_DISPOSITION_FILENAME);
@@ -197,17 +222,18 @@ public class RestApiPublisherUtils {
             Path resolvedPath = resolveFilePath(docFile.getAbsolutePath(), filename);
 
             RestApiUtil.transferFile(inputStream, resolvedPath.getFileName().toString(), resolvedPath.getParent().toString());
-            docInputStream = new FileInputStream(resolvedPath.toString());
-            String mediaType = fileDetails.getHeader(RestApiConstants.HEADER_CONTENT_TYPE);
-            mediaType = mediaType == null ? RestApiConstants.APPLICATION_OCTET_STREAM : mediaType;
-            PublisherCommonUtils
-                    .addDocumentationContentForFile(docInputStream, mediaType, filename, apiProvider, productId,
-                            documentId, organization);
-            docFile.delete();
+            byte[] fileBytes = FileUtils.readFileToByteArray(new File(resolvedPath.toString()));
+            String mediaType = detectAndValidateMediaType(fileBytes, filename);
+            try (InputStream uploadStream = new ByteArrayInputStream(fileBytes)) {
+                PublisherCommonUtils.addDocumentationContentForFile(uploadStream, mediaType, filename, apiProvider,
+                        productId, documentId, organization);
+            }
         } catch (FileNotFoundException e) {
             RestApiUtil.handleInternalServerError("Unable to read the file from path ", e, log);
+        } catch (IOException e) {
+            RestApiUtil.handleInternalServerError("Error processing file upload for document: " + documentId, e, log);
         } finally {
-            IOUtils.closeQuietly(docInputStream);
+            FileUtils.deleteQuietly(docFile);
         }
     }
 
@@ -300,13 +326,14 @@ public class RestApiPublisherUtils {
 
         File exportFolder = null;
         try {
-            exportFolder = CommonUtil.createTempDirectoryFromName(policyData.getSpecification().getName()
-                    + "_" +policyData.getSpecification().getVersion());
+            String sanitizedPolicyName = policyData.getSpecification().getName()
+                    .replaceAll(APIConstants.POLICY_FILENAME_INVALID_CHARS_REGEX, "");
+            exportFolder = CommonUtil.createTempDirectoryFromName(sanitizedPolicyName + "_" +
+                    policyData.getSpecification().getVersion());
             String exportAPIBasePath = exportFolder.toString();
-            String archivePath =
-                    exportAPIBasePath.concat(File.separator + policyData.getSpecification().getName());
+            String archivePath = exportAPIBasePath.concat(File.separator + sanitizedPolicyName);
             CommonUtil.createDirectory(archivePath);
-            String policyName = archivePath + File.separator + policyData.getSpecification().getName();
+            String policyName = archivePath + File.separator + sanitizedPolicyName;
             if (policyData.getSpecification() != null) {
                 if (format.equalsIgnoreCase(ExportFormat.YAML.name())) {
                     CommonUtil.writeDtoToFile(policyName, ExportFormat.YAML,
@@ -350,6 +377,51 @@ public class RestApiPublisherUtils {
             RestApiUtil.handleInternalServerError("Unable to read the input stream", e, log);
         }
         return null;
+    }
+
+    /**
+     * Detects the MIME type of a file based on its byte content and validates whether the file extension matches the
+     * detected MIME type.
+     *
+     * @param fileBytes the byte content of the file to validate
+     * @param filename  the name of the file, used to extract the extension for validation
+     * @return the detected MIME type as a string if the extension matches the MIME type
+     * @throws APIManagementException if the fileBytes or filename is null, or if the MIME type detection or validation fails
+     */
+    public static String detectAndValidateMediaType(byte[] fileBytes, String filename) throws APIManagementException {
+        if (fileBytes == null || filename == null) {
+            throw new APIManagementException(ExceptionCodes.INVALID_MEDIA_TYPE_VALIDATION);
+        }
+
+        String detectedMimeType;
+        try (InputStream mimeDetectStream = new ByteArrayInputStream(fileBytes)) {
+            Tika tika = new Tika();
+            detectedMimeType = tika.detect(mimeDetectStream, filename);
+        } catch (Exception e) {
+            throw new APIManagementException("Error detecting media type", e,
+                    ExceptionCodes.INVALID_MEDIA_TYPE_VALIDATION);
+        }
+
+        int lastDot = filename.lastIndexOf('.');
+        String fileExtension = (lastDot == -1) ? "" : filename.substring(lastDot).toLowerCase();
+
+        boolean extensionMatches;
+        MimeType mimeType;
+        try {
+            mimeType = MimeTypes.getDefaultMimeTypes().forName(detectedMimeType);
+        } catch (MimeTypeException e) {
+            throw new APIManagementException("Error resolving expected extension", e,
+                    ExceptionCodes.from(ExceptionCodes.INVALID_MEDIA_TYPE_VALIDATION, fileExtension, detectedMimeType));
+        }
+        Set<String> validExtensions = new HashSet<>(mimeType.getExtensions());
+        extensionMatches = validExtensions.stream().anyMatch(ext -> ext.equalsIgnoreCase(fileExtension));
+
+        if (!extensionMatches) {
+            throw new APIManagementException(
+                    ExceptionCodes.from(ExceptionCodes.INVALID_MEDIA_TYPE_VALIDATION, fileExtension, detectedMimeType));
+        }
+
+        return detectedMimeType;
     }
 
     /**
@@ -481,6 +553,7 @@ public class RestApiPublisherUtils {
      * @param organizationID    Organziation ID
      * @return                  List of subscription policies
      */
+    @Deprecated
     public static List<String> getSubscriptionPoliciesForOrganization(APIDTO apiInfo, String organizationID) {
 
         if (organizationID == null) {
@@ -497,5 +570,243 @@ public class RestApiPublisherUtils {
             }
         }
         return policies;
+    }
+
+    public static List<String> getSubscriptionPoliciesForOrganization(APIDTOTypeWrapper apiInfo, String organizationID) {
+
+        if (organizationID == null) {
+            return apiInfo.getPolicies();
+        }
+        List<String> policies = new ArrayList<>();
+        List<OrganizationPoliciesDTO> organizationPoliciesDTOs = apiInfo.getOrganizationPolicies();
+        if (organizationPoliciesDTOs != null && !organizationPoliciesDTOs.isEmpty()) {
+            for (OrganizationPoliciesDTO organizationPoliciesDTO : organizationPoliciesDTOs) {
+                if (StringUtils.equals(organizationID, organizationPoliciesDTO.getOrganizationID())) {
+                    policies = organizationPoliciesDTO.getPolicies();
+                    break;
+                }
+            }
+        }
+        return policies;
+    }
+
+    /**
+     * Imports an OpenAPI definition and returns an APIDTO object.
+     *
+     * @param definition       InputStream of the OpenAPI definition
+     * @param definitionUrl    URL of the OpenAPI definition
+     * @param inlineDefinition Inline OpenAPI definition as a string
+     * @param wrapper          APIDTOWrapper containing properties for APIDTO
+     * @param fileDetail       Attachment containing file details
+     * @param service          ServiceEntry object if applicable
+     * @param organization     Organization identifier
+     * @return APIDTO object created from the OpenAPI definition
+     * @throws APIManagementException if an error occurs during import
+     */
+    public static APIDTO importOpenAPIDefinitionForAPIs(InputStream definition, String definitionUrl,
+                                                        String inlineDefinition, APIDTOTypeWrapper wrapper,
+                                                        Attachment fileDetail, ServiceEntry service,
+                                                        String organization) throws APIManagementException {
+
+        API api = createAPIFromDefinition(definition, definitionUrl, inlineDefinition, wrapper, fileDetail,
+                service, organization, null);
+        return APIMappingUtil.fromAPItoDTO(api);
+    }
+
+    /**
+     * Imports an OpenAPI definition and returns a MCPServerDTO object.
+     *
+     * @param definition       InputStream of the OpenAPI definition
+     * @param definitionUrl    URL of the OpenAPI definition
+     * @param inlineDefinition Inline OpenAPI definition as a string
+     * @param wrapper          APIDTOWrapper containing properties for MCPServerDTO
+     * @param fileDetail       Attachment containing file details
+     * @param service          ServiceEntry object if applicable
+     * @param organization     Organization identifier
+     * @return MCPServerDTO object created from the OpenAPI definition
+     * @throws APIManagementException if an error occurs during import
+     */
+    public static MCPServerDTO importDefinitionForMCPServers(InputStream definition, String definitionUrl,
+                                                             String inlineDefinition, APIDTOTypeWrapper wrapper,
+                                                             Attachment fileDetail, ServiceEntry service,
+                                                             String organization, SecurityInfoDTO securityInfo)
+            throws APIManagementException {
+
+        API api = createAPIFromDefinition(definition, definitionUrl, inlineDefinition, wrapper, fileDetail, service,
+                organization, securityInfo);
+        return APIMappingUtil.fromAPItoMCPServerDTO(api);
+    }
+
+    /**
+     * Creates an API from the provided OpenAPI definition and returns the API object.
+     *
+     * @param definition        InputStream of the OpenAPI definition
+     * @param definitionUrl     URL of the OpenAPI definition
+     * @param inlineDefinition  Inline OpenAPI definition as a string
+     * @param apiDtoTypeWrapper APIDTOTypeWrapper containing properties for APIDTO or MCPServerDTO
+     * @param fileDetail        Attachment containing file details
+     * @param service           ServiceEntry object if applicable
+     * @param organization      Organization identifier
+     * @param securityInfo      Security information for MCP Server validation, if applicable
+     * @return API object created from the OpenAPI definition
+     * @throws APIManagementException if an error occurs during API creation
+     */
+    public static API createAPIFromDefinition(InputStream definition, String definitionUrl,
+                                              String inlineDefinition, APIDTOTypeWrapper apiDtoTypeWrapper,
+                                              Attachment fileDetail, ServiceEntry service, String organization,
+                                              SecurityInfoDTO securityInfo)
+            throws APIManagementException {
+
+        Map validationResponseMap;
+        boolean isServiceAPI = (service != null);
+
+        OpenAPIDefinitionValidationResponseDTO validationResponseDTO = null;
+        APIDefinitionValidationResponse validationResponse = null;
+        if (apiDtoTypeWrapper.isAPIDTO() || (apiDtoTypeWrapper.isMCPServerDTO()
+                && !apiDtoTypeWrapper.getSubtype().equals(APIConstants.API_SUBTYPE_SERVER_PROXY))) {
+            try {
+                validationResponseMap =
+                        validateOpenAPIDefinition(definitionUrl, definition, fileDetail, inlineDefinition,
+                                true, isServiceAPI);
+            } catch (APIManagementException e) {
+                RestApiUtil.handleInternalServerError("Error occurred while validating API Definition", e, log);
+                return null;
+            }
+
+            validationResponseDTO =
+                    (OpenAPIDefinitionValidationResponseDTO) validationResponseMap.get(RestApiConstants.RETURN_DTO);
+            validationResponse =
+                    (APIDefinitionValidationResponse) validationResponseMap.get(RestApiConstants.RETURN_MODEL);
+
+            if (!validationResponseDTO.isIsValid()) {
+                ErrorDTO errorDTO = APIMappingUtil.getErrorDTOFromErrorListItems(validationResponseDTO.getErrors());
+                throw RestApiUtil.buildBadRequestException(errorDTO);
+            }
+
+            // Set description if missing
+            if (validationResponseDTO.getInfo().getDescription() != null
+                    && apiDtoTypeWrapper.getDescription() == null) {
+                apiDtoTypeWrapper.setDescription(validationResponseDTO.getInfo().getDescription());
+            }
+        } else {
+            validationResponse = new APIDefinitionValidationResponse();
+            validationResponse.setParser(new OAS3Parser());
+
+            MCPServerValidationResponseDTO result =
+                    PublisherCommonUtils.validateMCPServer(definitionUrl, securityInfo, false, organization);
+
+            boolean isValid = Boolean.TRUE.equals(result.isIsValid());
+            validationResponse.setValid(isValid);
+
+            if (isValid) {
+                if (result.getContent() != null) {
+                    validationResponse.setJsonContent(result.getContent());
+                    validationResponse.setContent(result.getContent());
+                }
+            } else {
+                String msg = StringUtils.defaultIfBlank(result.getErrorMessage(),
+                        "MCP server validation failed for URL: " + definitionUrl);
+                throw RestApiUtil.buildBadRequestException(msg);
+            }
+        }
+
+        // Set API type if service-based and using APIDTO
+        if (isServiceAPI && apiDtoTypeWrapper.isAPIDTO()) {
+            apiDtoTypeWrapper.setType(PublisherCommonUtils.getAPIType(service.getDefinitionType(), null));
+        }
+
+        APIProvider apiProvider = RestApiCommonUtil.getLoggedInUserProvider();
+        String username = RestApiCommonUtil.getLoggedInUsername();
+
+        API apiToAdd =
+                PublisherCommonUtils.prepareToCreateAPIByDTO(apiDtoTypeWrapper, apiProvider, username, organization);
+        boolean syncOperations = !apiDtoTypeWrapper.isOperationsEmpty();
+
+        boolean isNotMCPServer = !APIConstants.API_TYPE_MCP.equals(apiToAdd.getType());
+
+        if (isNotMCPServer) {
+            Map<String, String> complianceResult =
+                    PublisherCommonUtils.checkGovernanceComplianceSync(apiToAdd.getUuid(),
+                            APIMGovernableState.API_CREATE, ArtifactType.API, organization, null, null);
+            if (!complianceResult.isEmpty()
+                    && Boolean.FALSE.toString()
+                    .equalsIgnoreCase(complianceResult.get(APIConstants.GOVERNANCE_COMPLIANCE_KEY))) {
+                throw new APIComplianceException(complianceResult.get(GOVERNANCE_COMPLIANCE_ERROR_MESSAGE));
+            }
+        }
+
+        API addedAPI = ApisApiServiceImplUtils.importAPIDefinition(apiToAdd, apiProvider, organization,
+                service, validationResponse, isServiceAPI, syncOperations);
+
+        if (isNotMCPServer) {
+            PublisherCommonUtils.checkGovernanceComplianceAsync(addedAPI.getUuid(), APIMGovernableState.API_CREATE,
+                    ArtifactType.API, organization);
+        }
+
+        return addedAPI;
+    }
+
+    /**
+     * Validate the provided OpenAPI definition (via file or url) and return a Map with the validation response
+     * information.
+     *
+     * @param url             OpenAPI definition url
+     * @param fileInputStream file as input stream
+     * @param apiDefinition   Swagger API definition String
+     * @param returnContent   whether to return the content of the definition in the response DTO
+     * @return Map with the validation response information. A value with key 'dto' will have the response DTO
+     * of type OpenAPIDefinitionValidationResponseDTO for the REST API. A value with key 'model' will have the
+     * validation response of type APIDefinitionValidationResponse coming from the impl level.
+     */
+    public static Map validateOpenAPIDefinition(String url, InputStream fileInputStream, Attachment fileDetail,
+                                                String apiDefinition, Boolean returnContent, Boolean isServiceAPI)
+            throws APIManagementException {
+        //validate inputs
+        handleInvalidParams(fileInputStream, fileDetail, url, apiDefinition, isServiceAPI);
+        String fileName = null;
+
+        OpenAPIDefinitionValidationResponseDTO responseDTO;
+        APIDefinitionValidationResponse validationResponse = new APIDefinitionValidationResponse();
+        if (fileDetail != null) {
+            fileName = fileDetail.getContentDisposition().getFilename();
+        }
+        validationResponse = ApisApiServiceImplUtils.validateOpenAPIDefinition(url, fileInputStream, apiDefinition,
+                fileName, returnContent);
+        responseDTO = APIMappingUtil.getOpenAPIDefinitionValidationResponseFromModel(validationResponse,
+                returnContent);
+
+        Map response = new HashMap();
+        response.put(RestApiConstants.RETURN_MODEL, validationResponse);
+        response.put(RestApiConstants.RETURN_DTO, responseDTO);
+        return response;
+    }
+
+    /**
+     * Validate API import definition/validate definition parameters
+     *
+     * @param fileInputStream file content stream
+     * @param url             URL of the definition
+     * @param apiDefinition   Swagger API definition String
+     */
+    public static void handleInvalidParams(InputStream fileInputStream, Attachment fileDetail, String url,
+                                           String apiDefinition, Boolean isServiceAPI) {
+
+        String msg = "";
+        boolean isFileSpecified = (fileInputStream != null && fileDetail != null &&
+                fileDetail.getContentDisposition() != null && fileDetail.getContentDisposition().getFilename() != null)
+                || (fileInputStream != null && isServiceAPI);
+        if (url == null && !isFileSpecified && apiDefinition == null) {
+            msg = "One out of 'file' or 'url' or 'inline definition' should be specified";
+        }
+
+        boolean isMultipleSpecificationGiven = (isFileSpecified && url != null) || (isFileSpecified &&
+                apiDefinition != null) || (apiDefinition != null && url != null);
+        if (isMultipleSpecificationGiven) {
+            msg = "Only one of 'file', 'url', and 'inline definition' should be specified";
+        }
+
+        if (StringUtils.isNotBlank(msg)) {
+            RestApiUtil.handleBadRequest(msg, log);
+        }
     }
 }

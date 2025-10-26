@@ -43,7 +43,9 @@
         "enum": [
           "Synapse",
           "ChoreoConnect",
-          "AWS"
+          "AWS",
+          "Azure",
+          "Kong"
         ]
       },
       "minItems": 1
@@ -58,7 +60,8 @@
               "HTTP",
               "SOAP",
               "SOAPTOREST",
-              "GRAPHQL"
+              "GRAPHQL",
+              "WS"
             ]
           },
           {
@@ -70,7 +73,8 @@
                   "HTTP",
                   "SOAP",
                   "SOAPTOREST",
-                  "GRAPHQL"
+                  "GRAPHQL",
+                  "WS"
                 ]
               },
               "subType": {
@@ -111,7 +115,9 @@
               "Boolean",
               "Integer",
               "Enum",
-              "Map"
+              "Map",
+              "Secret",
+              "JSON"
             ]
           },
           "defaultValue": {

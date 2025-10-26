@@ -774,6 +774,19 @@ public class Utils {
     }
 
     /**
+     * Evaluate current request transport and message context to check if it is a MCP request execution path.
+     *
+     * @param messageContext MessageContext
+     * @return true if MCP request execution path
+     */
+    public static boolean isMCPRequest(MessageContext messageContext) {
+        org.apache.axis2.context.MessageContext axis2MC = ((Axis2MessageContext) messageContext).
+                getAxis2MessageContext();
+        String apiType = (String) messageContext.getProperty(APIMgtGatewayConstants.API_TYPE);
+        return APIConstants.API_TYPE_MCP.equals(apiType);
+    }
+
+    /**
      * @param certificate SSL Certificate
      * @return X509Certificate
      */
@@ -834,8 +847,33 @@ public class Utils {
      *
      * @return set of acceptable resources
      */
+    @Deprecated // Use getAcceptableResources(Resource[], String, String, MessageContext) instead
     public static Set<Resource> getAcceptableResources(Resource[] allAPIResources,
-                                                       String httpMethod, String corsRequestMethod) {
+                                                       String httpMethod,
+                                                       String corsRequestMethod) {
+        return getAcceptableResources(allAPIResources, httpMethod, corsRequestMethod, null);
+    }
+
+    /**
+     * Select acceptable resources from the set of all resources based on requesting methods.
+     *
+     * @return set of acceptable resources
+     */
+    public static Set<Resource> getAcceptableResources(Resource[] allAPIResources, String httpMethod,
+                                                       String corsRequestMethod, MessageContext messageContext) {
+        if (messageContext != null) {
+            Object cachedResources = messageContext.getProperty("ACCEPTABLE_RESOURCES");
+            if (cachedResources instanceof Set) {
+                if (log.isDebugEnabled()) {
+                    log.debug("Returning cached acceptable resources for method: " + httpMethod);
+                }
+                return (Set<Resource>) cachedResources;
+            }
+        }
+        if (log.isDebugEnabled()) {
+            log.debug("Computing acceptable resources for method: " + httpMethod + ", CORS method: "
+                    + corsRequestMethod);
+        }
         List<Resource> acceptableResourcesList = new LinkedList<>();
         for (Resource resource : allAPIResources) {
             //If the requesting method is OPTIONS or if the Resource contains the requesting method

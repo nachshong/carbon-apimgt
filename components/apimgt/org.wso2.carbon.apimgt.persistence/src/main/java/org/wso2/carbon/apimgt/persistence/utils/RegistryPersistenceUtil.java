@@ -31,6 +31,7 @@ import org.json.simple.parser.ParseException;
 import org.wso2.carbon.CarbonConstants;
 import org.wso2.carbon.apimgt.api.APIManagementException;
 import org.wso2.carbon.apimgt.api.TokenBasedThrottlingCountHolder;
+import org.wso2.carbon.apimgt.api.UsedByMigrationClient;
 import org.wso2.carbon.apimgt.api.model.API;
 import org.wso2.carbon.apimgt.api.model.APICategory;
 import org.wso2.carbon.apimgt.api.model.APIIdentifier;
@@ -108,6 +109,7 @@ public class RegistryPersistenceUtil {
      * @param input inputString
      * @return String modifiedString
      */
+    @UsedByMigrationClient
     public static String replaceEmailDomainBack(String input) {
 
         if (input != null && input.contains(APIConstants.EMAIL_DOMAIN_SEPARATOR_REPLACEMENT)) {
@@ -212,6 +214,7 @@ public class RegistryPersistenceUtil {
             artifact.setAttribute(APIConstants.API_OVERVIEW_CONTEXT_TEMPLATE, api.getContextTemplate());
             artifact.setAttribute(APIConstants.API_OVERVIEW_VERSION_TYPE, "context");
             artifact.setAttribute(APIConstants.API_OVERVIEW_TYPE, api.getType());
+            artifact.setAttribute(APIConstants.API_OVERVIEW_DISPLAY_NAME, api.getDisplayName());
 
             StringBuilder policyBuilder = new StringBuilder();
             for (Tier tier : api.getAvailableTiers()) {
@@ -544,7 +547,7 @@ public class RegistryPersistenceUtil {
      * @param identifier APIIdentifier
      * @return API path
      */
-
+    @UsedByMigrationClient
     public static String getAPIPath(APIIdentifier identifier) {
 
         return APIConstants.API_ROOT_LOCATION + RegistryConstants.PATH_SEPARATOR
@@ -560,6 +563,7 @@ public class RegistryPersistenceUtil {
      * @param input inputString
      * @return String modifiedString
      */
+    @UsedByMigrationClient
     public static String replaceEmailDomain(String input) {
 
         if (input != null && input.contains(APIConstants.EMAIL_DOMAIN_SEPARATOR)) {
@@ -624,7 +628,7 @@ public class RegistryPersistenceUtil {
                     RegistryAuthorizationManager authorizationManager = new RegistryAuthorizationManager(tenantUserRealm);
                     resourcePath = authorizationManager.computePathOnMount(resourcePath);
 
-                    org.wso2.carbon.user.api.AuthorizationManager authManager = ServiceReferenceHolder.getInstance()
+                    AuthorizationManager authManager = ServiceReferenceHolder.getInstance()
                             .getRealmService().
                             getTenantUserRealm(tenantID)
                             .getAuthorizationManager();
@@ -706,7 +710,7 @@ public class RegistryPersistenceUtil {
      * @param artifact
      * @param registry
      * @return API
-     * @throws org.wso2.carbon.apimgt.api.APIManagementException
+     * @throws APIManagementException
      */
 
     public static API getAPI(GovernanceArtifact artifact, Registry registry)
@@ -885,6 +889,7 @@ public class RegistryPersistenceUtil {
             }
             api.setAudience(artifact.getAttribute(APIConstants.API_OVERVIEW_AUDIENCE));
             api.setVersionTimestamp(artifact.getAttribute(APIConstants.API_OVERVIEW_VERSION_COMPARABLE));
+            api.setDisplayName(artifact.getAttribute(APIConstants.API_OVERVIEW_DISPLAY_NAME));
 
             //set selected clusters which API needs to be deployed
             String deployments = artifact.getAttribute(APIConstants.API_OVERVIEW_DEPLOYMENTS);
@@ -1060,6 +1065,7 @@ public class RegistryPersistenceUtil {
         PrivilegedCarbonContext.getThreadLocalCarbonContext().setTenantDomain(tenantDomain, true);
     }
 
+    @UsedByMigrationClient
     public static API getApiForPublishing(Registry registry, GovernanceArtifact apiArtifact)
                                     throws APIManagementException {
         API api = getAPI(apiArtifact, registry);
@@ -1092,6 +1098,7 @@ public class RegistryPersistenceUtil {
                 + APIConstants.API_RESOURCE_NAME;
     }
 
+    @UsedByMigrationClient
     public static void endTenantFlow() {
         PrivilegedCarbonContext.endTenantFlow();
     }
@@ -1162,7 +1169,7 @@ public class RegistryPersistenceUtil {
                                             .equals(tenantDomain)) {
                 RegistryAuthorizationManager authorizationManager = new RegistryAuthorizationManager(tenantUserRealm);
                 resourcePath = authorizationManager.computePathOnMount(resourcePath);
-                org.wso2.carbon.user.api.AuthorizationManager authManager = tenantUserRealm.getAuthorizationManager();
+                AuthorizationManager authManager = tenantUserRealm.getAuthorizationManager();
                 if (visibility != null && APIConstants.API_RESTRICTED_VISIBILITY.equalsIgnoreCase(visibility)) {
                     boolean isRoleEveryOne = false;
                     /*If no roles have defined, authorize for everyone role */
@@ -1419,7 +1426,7 @@ public class RegistryPersistenceUtil {
                     getTenantUserRealm(tenantId);
             if (!org.wso2.carbon.utils.multitenancy.MultitenantConstants.SUPER_TENANT_DOMAIN_NAME
                     .equals(tenantDomain)) {
-                org.wso2.carbon.user.api.AuthorizationManager authManager = tenantUserRealm.getAuthorizationManager();
+                AuthorizationManager authManager = tenantUserRealm.getAuthorizationManager();
                 authManager.clearResourceAuthorizations(resourcePath);
             } else {
                 RegistryAuthorizationManager authorizationManager = new RegistryAuthorizationManager(tenantUserRealm);
@@ -1463,6 +1470,7 @@ public class RegistryPersistenceUtil {
      * @param identifier APIIdentifier
      * @return wsdl archive path
      */
+    @UsedByMigrationClient
     public static String getWsdlArchivePath(APIIdentifier identifier) {
 
         return APIConstants.API_WSDL_RESOURCE_LOCATION + APIConstants.API_WSDL_ARCHIVE_LOCATION
@@ -1518,6 +1526,7 @@ public class RegistryPersistenceUtil {
                 + APIConstants.API_RESOURCE_NAME;
     }
 
+    @UsedByMigrationClient
     public static String getRevisionPath(String apiUUID, int revisionId) {
         return APIConstants.API_REVISION_LOCATION + RegistryConstants.PATH_SEPARATOR + apiUUID +
                 RegistryConstants.PATH_SEPARATOR + revisionId + RegistryConstants.PATH_SEPARATOR;
@@ -1544,7 +1553,7 @@ public class RegistryPersistenceUtil {
 
         try {
             String filePathString = filePath.replaceFirst("/registry/resource/", "");
-            org.wso2.carbon.user.api.AuthorizationManager accessControlAdmin = ServiceReferenceHolder.getInstance().
+            AuthorizationManager accessControlAdmin = ServiceReferenceHolder.getInstance().
                     getRealmService().getTenantUserRealm(MultitenantConstants.SUPER_TENANT_ID).
                     getAuthorizationManager();
             if (!accessControlAdmin.isRoleAuthorized(CarbonConstants.REGISTRY_ANONNYMOUS_ROLE_NAME,
@@ -1564,6 +1573,7 @@ public class RegistryPersistenceUtil {
      * @param apiVersion API Version
      * @return WSDL file name
      */
+    @UsedByMigrationClient
     public static String createWsdlFileName(String provider, String apiName, String apiVersion) {
 
         return provider + "--" + apiName + apiVersion + ".wsdl";
@@ -1583,6 +1593,7 @@ public class RegistryPersistenceUtil {
             api.setId(apiArtifact.getId());
             api.setStatus(apiArtifact.getAttribute(APIConstants.API_OVERVIEW_STATUS));
             api.setApiName(apiArtifact.getAttribute(APIConstants.API_OVERVIEW_NAME));
+            api.setDisplayName(apiArtifact.getAttribute(APIConstants.API_OVERVIEW_DISPLAY_NAME));
             api.setProviderName(apiArtifact.getAttribute(APIConstants.API_OVERVIEW_PROVIDER));
             api.setVersion(apiArtifact.getAttribute(APIConstants.API_OVERVIEW_VERSION));
             api.setAdvertiseOnly(Boolean.parseBoolean(apiArtifact
@@ -1594,6 +1605,8 @@ public class RegistryPersistenceUtil {
             api.setTechnicalOwnerEmail(apiArtifact.getAttribute(APIConstants.API_OVERVIEW_TEC_OWNER_EMAIL));
             api.setMonetizationStatus(Boolean.parseBoolean(apiArtifact.
                     getAttribute(APIConstants.Monetization.API_MONETIZATION_STATUS)));
+            api.setGatewayVendor(apiArtifact.getAttribute(APIConstants.API_OVERVIEW_GATEWAY_VENDOR));
+            api.setType(apiArtifact.getAttribute(APIConstants.API_OVERVIEW_TYPE));
 
         } catch (GovernanceException e) {
             throw new APIPersistenceException("Error while extracting api attributes ", e);
@@ -1610,6 +1623,7 @@ public class RegistryPersistenceUtil {
             api.setId(apiArtifact.getId());
             api.setStatus(apiArtifact.getAttribute(APIConstants.API_OVERVIEW_STATUS));
             api.setApiName(apiArtifact.getAttribute(APIConstants.API_OVERVIEW_NAME));
+            api.setDisplayName(apiArtifact.getAttribute(APIConstants.API_OVERVIEW_DISPLAY_NAME));
             api.setProviderName(apiArtifact.getAttribute(APIConstants.API_OVERVIEW_PROVIDER));
             api.setVersion(apiArtifact.getAttribute(APIConstants.API_OVERVIEW_VERSION));
             api.setBusinessOwner(apiArtifact.getAttribute(APIConstants.API_OVERVIEW_BUSS_OWNER));
@@ -1620,6 +1634,7 @@ public class RegistryPersistenceUtil {
                     getAttribute(APIConstants.Monetization.API_MONETIZATION_STATUS)));
             api.setAdvertiseOnly(Boolean.parseBoolean(apiArtifact
                     .getAttribute(APIConstants.API_OVERVIEW_ADVERTISE_ONLY)));
+            api.setType(apiArtifact.getAttribute(APIConstants.API_OVERVIEW_TYPE));
 
         } catch (GovernanceException e) {
             throw new APIPersistenceException("Error while extracting api attributes ", e);
@@ -1686,6 +1701,7 @@ public class RegistryPersistenceUtil {
             artifact.setAttribute(APIConstants.API_OVERVIEW_AUTHORIZATION_HEADER, apiProduct.getAuthorizationHeader());
             artifact.setAttribute(APIConstants.API_OVERVIEW_API_KEY_HEADER, apiProduct.getApiKeyHeader());
             artifact.setAttribute(APIConstants.API_OVERVIEW_API_SECURITY, apiProduct.getApiSecurity());
+            artifact.setAttribute(APIConstants.API_OVERVIEW_DISPLAY_NAME, apiProduct.getDisplayName());
 
             //Validate if the API has an unsupported context before setting it in the artifact
             String tenantDomain = PrivilegedCarbonContext.getThreadLocalCarbonContext().getTenantDomain();
@@ -1747,7 +1763,7 @@ public class RegistryPersistenceUtil {
      * @param artifact
      * @param registry
      * @return APIProduct
-     * @throws org.wso2.carbon.apimgt.api.APIManagementException
+     * @throws APIManagementException
      */
     public static APIProduct getAPIProduct(GovernanceArtifact artifact, Registry registry)
             throws APIManagementException {
@@ -1818,6 +1834,7 @@ public class RegistryPersistenceUtil {
                     APIConstants.API_OVERVIEW_ENABLE_STORE)));
             apiProduct.setTestKey(artifact.getAttribute(APIConstants.API_OVERVIEW_TESTKEY));
             apiProduct.setResponseCache(artifact.getAttribute(APIConstants.API_OVERVIEW_RESPONSE_CACHING));
+            apiProduct.setDisplayName(artifact.getAttribute(APIConstants.API_OVERVIEW_DISPLAY_NAME));
 
             int cacheTimeout = APIConstants.API_RESPONSE_CACHE_TIMEOUT;
             try {
@@ -2015,7 +2032,7 @@ public class RegistryPersistenceUtil {
     private static RegistryService getRegistryService() {
         return ServiceReferenceHolder.getInstance().getRegistryService();
     }
-    
+
     public static Map<String, String> getFields(String query) {
         // Map to hold the final output
         Map<String, String> outputMap = new HashMap<>();
@@ -2059,7 +2076,7 @@ public class RegistryPersistenceUtil {
         }
         outputMap.put("mediaType", "application/vnd.wso2-api+xml");
         //since store_view_roles and overview_visible_organizations are passed as property search value, remove this.
-        outputMap.remove("overview_store_view_roles"); 
+        outputMap.remove("overview_store_view_roles");
         outputMap.remove("overview_visible_organizations");
         return outputMap;
     }

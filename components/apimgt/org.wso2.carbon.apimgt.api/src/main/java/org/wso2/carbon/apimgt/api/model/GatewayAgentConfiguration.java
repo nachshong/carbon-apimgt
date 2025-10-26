@@ -20,6 +20,7 @@ package org.wso2.carbon.apimgt.api.model;
 
 import org.wso2.carbon.apimgt.api.APIManagementException;
 
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -28,12 +29,31 @@ import java.util.List;
 public interface GatewayAgentConfiguration {
 
     /**
-     * This method returns the Gateway Deployer implementation class name
-     *
-     * @return gateway deployer implementation class name
+     * Initialize the external gateway deployer
+     * @return String implementation class name
      */
+    default String getGatewayDeployerImplementation() {
+        // Backward-compat: fall back to the legacy method if implementers haven't overridden the scheme-aware API.
+        return getImplementation();
+    }
+
+    /**
+     * Get the implementation class of the external gateway deployer
+     *
+     * @return String implementation class name
+     * @deprecated Use {@link #getGatewayDeployerImplementation()} instead.
+     */
+    @Deprecated
     String getImplementation();
 
+    /**
+     * Get the implementation class of the external gateway discovery
+     *
+     * @return String implementation class name
+     */
+    default String getDiscoveryImplementation() {
+        return null;
+    }
     /**
      * Get vendor type of the external gateway
      *
@@ -61,4 +81,16 @@ public interface GatewayAgentConfiguration {
      * @return String default hostname template
      */
     String getDefaultHostnameTemplate();
+
+    /**
+     * This method returns the supported gateway modes for a given gateway type
+     * @return List of supported gateway modes
+     */
+    default List<String> getSupportedModes() {
+        return Arrays.asList(
+                GatewayMode.WRITE_ONLY.getMode(),
+                GatewayMode.READ_ONLY.getMode(),
+                GatewayMode.READ_WRITE.getMode()
+        );
+    }
 }

@@ -90,6 +90,11 @@ public class SynapsePolicyAggregator {
         String operationPolicyTemplate = FileUtil.readFileToString(POLICY_SEQUENCE_TEMPLATE_LOCATION)
                 .replace("\\", ""); //Removing escape characters from the template
         configMap.put("sequence_name", sequenceName);
+
+        if (api != null) {
+            configMap.put("api_type", api.getType());
+        }
+
         if (APIConstants.OPERATION_SEQUENCE_TYPE_FAULT.equals(flow)) {
             configMap.put("fault_sequence", true);
         }
@@ -153,7 +158,14 @@ public class SynapsePolicyAggregator {
         String uriTemplateString = template.getUriTemplate();
         uriTemplateString = trimTrailingSlashes(uriTemplateString);
         String method = template.getHTTPVerb();
-        String key = method + "_" + uriTemplateString.replaceAll("[\\W]", "\\\\$0");
+        String key;
+        if (APIConstants.HTTP_VERB_SUBSCRIBE.equalsIgnoreCase(
+                method) || APIConstants.HTTP_VERB_PUBLISH.equalsIgnoreCase(method)) {
+            // For WebSocket APIs, ignore the method
+            key = uriTemplateString.replaceAll("[\\W]", "\\\\$0");
+        } else {
+            key = method + "_" + uriTemplateString.replaceAll("[\\W]", "\\\\$0");
+        }
 
         // This will replace & with &amp; for query params
         key = StringEscapeUtils.escapeXml(StringEscapeUtils.unescapeXml(key));
@@ -193,11 +205,20 @@ public class SynapsePolicyAggregator {
                         policy.getPolicyVersion(), policy.getPolicyType());
                 OperationPolicySpecification policySpecification = ImportUtils
                         .getOperationPolicySpecificationFromFile(policyDirectory, policyFileName);
+                if (policySpecification == null) {
+                    policySpecification = ImportUtils.getOperationPolicySpecificationFromFile(policyDirectory,
+                            policyFileName.replaceAll(APIConstants.POLICY_FILENAME_INVALID_CHARS_REGEX, ""));
+                }
                 if (policySpecification.getSupportedGateways()
                         .contains(APIConstants.OPERATION_POLICY_SUPPORTED_GATEWAY_SYNAPSE)) {
                     OperationPolicyDefinition policyDefinition =
                             APIUtil.getOperationPolicyDefinitionFromFile(policyDirectory, policyFileName,
                                     APIConstants.SYNAPSE_POLICY_DEFINITION_EXTENSION);
+                    if (policyDefinition == null) {
+                        policyDefinition = APIUtil.getOperationPolicyDefinitionFromFile(policyDirectory,
+                                policyFileName.replaceAll(APIConstants.POLICY_FILENAME_INVALID_CHARS_REGEX, ""),
+                                APIConstants.SYNAPSE_POLICY_DEFINITION_EXTENSION);
+                    }
                     if (policyDefinition != null) {
                         try {
                             String renderedTemplate =

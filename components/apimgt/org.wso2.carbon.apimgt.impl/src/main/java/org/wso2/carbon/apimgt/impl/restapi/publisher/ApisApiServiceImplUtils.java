@@ -18,6 +18,11 @@
 
 package org.wso2.carbon.apimgt.impl.restapi.publisher;
 
+import org.wso2.carbon.apimgt.api.model.Backend;
+import org.apache.http.client.HttpClient;
+import org.wso2.carbon.apimgt.api.model.BackendOperation;
+import org.wso2.carbon.apimgt.api.model.BackendOperationMapping;
+import org.wso2.carbon.apimgt.impl.MCPInitializerAndToolFetcher;
 import software.amazon.awssdk.core.exception.SdkClientException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -54,6 +59,7 @@ import org.wso2.carbon.apimgt.api.model.APIRevision;
 import org.wso2.carbon.apimgt.api.model.APIRevisionDeployment;
 import org.wso2.carbon.apimgt.api.model.Comment;
 import org.wso2.carbon.apimgt.api.model.Environment;
+import org.wso2.carbon.apimgt.api.model.GatewayMode;
 import org.wso2.carbon.apimgt.api.model.ResourceFile;
 import org.wso2.carbon.apimgt.api.model.Scope;
 import org.wso2.carbon.apimgt.api.model.ServiceEntry;
@@ -63,12 +69,12 @@ import org.wso2.carbon.apimgt.api.model.URITemplate;
 import org.wso2.carbon.apimgt.api.model.VHost;
 import org.wso2.carbon.apimgt.impl.APIConstants;
 import org.wso2.carbon.apimgt.impl.dao.ApiMgtDAO;
-import org.wso2.carbon.apimgt.impl.definitions.OAS2Parser;
-import org.wso2.carbon.apimgt.impl.definitions.OAS3Parser;
-import org.wso2.carbon.apimgt.impl.definitions.OASParserUtil;
 import org.wso2.carbon.apimgt.impl.restapi.CommonUtils;
 import org.wso2.carbon.apimgt.impl.utils.APIUtil;
 import org.wso2.carbon.apimgt.impl.wsdl.util.SOAPOperationBindingUtils;
+import org.wso2.carbon.apimgt.spec.parser.definitions.OAS2Parser;
+import org.wso2.carbon.apimgt.spec.parser.definitions.OAS3Parser;
+import org.wso2.carbon.apimgt.spec.parser.definitions.OASParserUtil;
 import org.wso2.carbon.base.ServerConfiguration;
 import org.wso2.carbon.core.util.CryptoException;
 import org.wso2.carbon.core.util.CryptoUtil;
@@ -105,13 +111,17 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 import static org.wso2.carbon.apimgt.impl.restapi.CommonUtils.constructEndpointConfigForService;
 import static org.wso2.carbon.apimgt.impl.restapi.CommonUtils.validateScopes;
 import static org.wso2.carbon.apimgt.impl.restapi.Constants.CHARSET;
+import static org.wso2.carbon.apimgt.api.APIConstants.SupportedHTTPVerbs;
 
 public class ApisApiServiceImplUtils {
 
@@ -639,7 +649,13 @@ public class ApisApiServiceImplUtils {
             throws APIManagementException {
         APIDefinitionValidationResponse validationResponse = new APIDefinitionValidationResponse();
         if (url != null) {
-            validationResponse = OASParserUtil.validateAPIDefinitionByURL(url, returnContent);
+            try {
+                URL urlObj = new URL(url);
+                HttpClient httpClient = APIUtil.getHttpClient(urlObj.getPort(), urlObj.getProtocol());
+                validationResponse = OASParserUtil.validateAPIDefinitionByURL(url, httpClient, returnContent);
+            } catch (MalformedURLException e) {
+                throw new APIManagementException("Error while processing the API definition URL", e);
+            }
         } else if (inputStream != null) {
             try {
                 if (fileName != null) {
@@ -691,40 +707,48 @@ public class ApisApiServiceImplUtils {
                 apiToAdd.setApiSecurity(service.getSecurityType().toString());
             }
         }
-        APIDefinition apiDefinition = validationResponse.getParser();
-        SwaggerData swaggerData;
-        String definitionToAdd = validationResponse.getJsonContent();
-        if (syncOperations) {
-            validateScopes(apiToAdd, apiProvider, username);
-            swaggerData = new SwaggerData(apiToAdd);
-            definitionToAdd = apiDefinition.populateCustomManagementInfo(definitionToAdd, swaggerData);
-        }
-        definitionToAdd = OASParserUtil.preProcess(definitionToAdd);
 
-        Set<URITemplate> uriTemplates = apiDefinition.getURITemplates(definitionToAdd);
+        String definitionToAdd;
+        APIDefinition apiDefinition = validationResponse.getParser();
+        String definition = validationResponse.getJsonContent();
         int tenantId = APIUtil.getTenantIdFromTenantDomain(organization);
         String defaultAPILevelPolicy = APIUtil.getDefaultAPILevelPolicy(tenantId);
-        for (URITemplate uriTemplate : uriTemplates) {
-            if (StringUtils.isEmpty(uriTemplate.getThrottlingTier())) {
-                uriTemplate.setThrottlingTier(defaultAPILevelPolicy);
-            }
-            if (StringUtils.isEmpty(uriTemplate.getAuthType())) {
-                uriTemplate.setAuthType(APIConstants.AUTH_APPLICATION_OR_USER_LEVEL_TOKEN);
-            }
-        }
 
-        Set<Scope> scopes = apiDefinition.getScopes(definitionToAdd);
-        apiToAdd.setUriTemplates(uriTemplates);
-        apiToAdd.setScopes(scopes);
-        //Set extensions from API definition to API object
-        apiToAdd = OASParserUtil.setExtensionsToAPI(definitionToAdd, apiToAdd);
-        if (!syncOperations) {
+        if (APIConstants.API_TYPE_MCP.equals(apiToAdd.getType())) {
+            String backendId = UUID.randomUUID().toString();
+            Set<URITemplate> uriTemplates = generateMCPFeatures(apiToAdd.getSubtype(), definition, backendId,
+                    apiToAdd.getUriTemplates(), apiDefinition);
+            applyDefaultThrottlingAndAuth(uriTemplates, defaultAPILevelPolicy);
+            apiToAdd.setUriTemplates(uriTemplates);
             validateScopes(apiToAdd, apiProvider, username);
-            swaggerData = new SwaggerData(apiToAdd);
-            definitionToAdd = apiDefinition
-                    .populateCustomManagementInfo(validationResponse.getJsonContent(), swaggerData);
-        }
+            Backend backend = createDefaultBackend(backendId, definition, apiToAdd.getEndpointConfig());
+            apiToAdd.getBackends().add(backend);
+            apiToAdd.setEndpointConfig(null);
+            SwaggerData swaggerData = new SwaggerData(apiToAdd);
+            definitionToAdd = new OAS3Parser().generateAPIDefinition(swaggerData);
+        } else {
+            definition = OASParserUtil.preProcess(definition);
+            if (syncOperations) {
+                validateScopes(apiToAdd, apiProvider, username);
+                SwaggerData swaggerData = new SwaggerData(apiToAdd);
+                definition = apiDefinition.populateCustomManagementInfo(definition, swaggerData);
+            }
+            Set<URITemplate> uriTemplates = apiDefinition.getURITemplates(definition);
+            applyDefaultThrottlingAndAuth(uriTemplates, defaultAPILevelPolicy);
 
+            Set<Scope> scopes = apiDefinition.getScopes(definition);
+            apiToAdd.setUriTemplates(uriTemplates);
+            apiToAdd.setScopes(scopes);
+            apiToAdd = OASParserUtil.setExtensionsToAPI(definition, apiToAdd);
+
+            if (!syncOperations) {
+                validateScopes(apiToAdd, apiProvider, username);
+                SwaggerData swaggerData = new SwaggerData(apiToAdd);
+                definition =
+                        apiDefinition.populateCustomManagementInfo(validationResponse.getJsonContent(), swaggerData);
+            }
+            definitionToAdd = definition;
+        }
         // adding the definition
         apiToAdd.setSwaggerDefinition(definitionToAdd);
 
@@ -735,6 +759,215 @@ public class ApisApiServiceImplUtils {
 
         return addedAPI;
     }
+
+    /**
+     * Applies default throttling tier and authentication type to the given set of URI templates,
+     * if they are not already defined.
+     *
+     * @param uriTemplates          the set of URI templates to update
+     * @param defaultThrottlingTier the default throttling policy to apply when none is set
+     */
+    private static void applyDefaultThrottlingAndAuth(Set<URITemplate> uriTemplates, String defaultThrottlingTier) {
+
+        for (URITemplate uriTemplate : uriTemplates) {
+            if (StringUtils.isEmpty(uriTemplate.getThrottlingTier())) {
+                uriTemplate.setThrottlingTier(defaultThrottlingTier);
+            }
+            if (StringUtils.isEmpty(uriTemplate.getAuthType())) {
+                uriTemplate.setAuthType(APIConstants.AUTH_APPLICATION_OR_USER_LEVEL_TOKEN);
+            }
+        }
+    }
+
+    /**
+     * Creates and initializes a Backend instance with the given parameters.
+     *
+     * @param backendApiId      unique identifier for the backend
+     * @param backendDefinition OpenAPI definition for the backend
+     * @param endpointConfig    endpoint configuration
+     * @return configured Backend instance
+     */
+    private static Backend createDefaultBackend(String backendApiId, String backendDefinition, String endpointConfig) {
+
+        Backend backend = new Backend();
+        backend.setId(backendApiId);
+        backend.setName(APIConstants.MCP.MCP_DEFAULT_BACKEND_NAME);
+        backend.setDefinition(backendDefinition);
+        backend.setEndpointConfig(endpointConfig);
+        return backend;
+    }
+
+    /**
+     * Generates MCP feature URI templates for a backend API.
+     *
+     * @param subtype              MCP feature subtype
+     * @param backendApiDefinition API definition string
+     * @param backendId         backend API ID
+     * @param uriTemplates         existing URI templates
+     * @param parser               parser to generate MCP tools
+     * @return generated MCP feature templates
+     * @throws APIManagementException if generation fails
+     */
+    public static Set<URITemplate> generateMCPFeatures(String subtype, String backendApiDefinition, String backendId,
+                                                       Set<URITemplate> uriTemplates, APIDefinition parser)
+            throws APIManagementException {
+
+        Set<URITemplate> mcpTools;
+        if (APIConstants.API_SUBTYPE_SERVER_PROXY.equals(subtype)) {
+            mcpTools = findMatchingTools(backendApiDefinition, uriTemplates, backendId);
+        } else {
+            mcpTools = parser.generateMCPTools(backendApiDefinition, null, backendId, subtype, uriTemplates);
+        }
+        if (mcpTools == null || mcpTools.isEmpty()) {
+            throw new APIManagementException("Failed to generate MCP features: no URI templates were produced.");
+        }
+        return mcpTools;
+    }
+
+    /**
+     * Update URI templates with tool metadata from the MCP backend definition and return the matched templates.
+     *
+     * @param backendApiDefinitionJson Backend definition as JSON string (must contain a non-empty "tools" array)
+     * @param uriTemplates             Candidate URI templates to enrich
+     * @param backendId                Backend identifier to set on matched templates' mappings
+     * @return Templates that were matched and updated (never null)
+     * @throws APIManagementException If the definition JSON is invalid or required tool fields are missing
+     */
+    public static Set<URITemplate> findMatchingTools(String backendApiDefinitionJson, Set<URITemplate> uriTemplates,
+                                                     String backendId) throws APIManagementException {
+
+        org.json.JSONObject backendDefinitionJson = parseBackendDefinition(backendApiDefinitionJson);
+        org.json.JSONArray toolsArray = MCPInitializerAndToolFetcher.extractToolsArray(backendDefinitionJson);
+
+        Map<String, String> schemaByToolName = new HashMap<>();
+        Map<String, String> descriptionByToolName = new HashMap<>();
+        populateToolLookups(toolsArray, schemaByToolName, descriptionByToolName);
+
+        return populateURITemplatesWithTools(uriTemplates, schemaByToolName, descriptionByToolName, backendId);
+    }
+
+    /**
+     * Parse backend definition JSON string.
+     */
+    private static org.json.JSONObject parseBackendDefinition(String backendJson) throws APIManagementException {
+
+        if (StringUtils.isBlank(backendJson)) {
+            throw new APIManagementException("Backend API definition cannot be empty.",
+                    ExceptionCodes.MCP_SERVER_TOOL_LIST_GENERATION_FAILED);
+        }
+        try {
+            return new org.json.JSONObject(backendJson);
+        } catch (org.json.JSONException e) {
+            throw new APIManagementException("Invalid backend API definition JSON: " + e.getMessage(), e,
+                    ExceptionCodes.MCP_SERVER_TOOL_LIST_GENERATION_FAILED);
+        }
+    }
+
+    /**
+     * Populates lookup maps for tool schemas and descriptions using the provided tools array.
+     *
+     * @param toolsArray            JSON array of tool objects
+     * @param schemaByToolName      Map to populate with tool name → input schema JSON string
+     * @param descriptionByToolName Map to populate with tool name → tool description
+     * @throws APIManagementException If any tool entry is missing a required field
+     */
+    private static void populateToolLookups(org.json.JSONArray toolsArray, Map<String, String> schemaByToolName,
+                                            Map<String, String> descriptionByToolName) throws APIManagementException {
+
+        for (int index = 0; index < toolsArray.length(); index++) {
+            org.json.JSONObject toolJson = toolsArray.optJSONObject(index);
+            if (toolJson == null) {
+                continue;
+            }
+
+            String toolName = StringUtils.trimToNull(toolJson.optString(APIConstants.MCP.TOOL_NAME_KEY, null));
+            String toolDescription =
+                    StringUtils.trimToNull(toolJson.optString(APIConstants.MCP.TOOL_DESCRIPTION_KEY, null));
+            org.json.JSONObject inputSchemaJson = toolJson.optJSONObject(APIConstants.MCP.TOOL_INPUT_SCHEMA_KEY);
+            String inputSchema = (inputSchemaJson != null) ? inputSchemaJson.toString() : null;
+
+            if (StringUtils.isBlank(toolName)) {
+                throw new APIManagementException("Tool[" + index + "]: name is required.",
+                        ExceptionCodes.PARAMETER_NOT_PROVIDED);
+            }
+            if (StringUtils.isBlank(toolDescription)) {
+                throw new APIManagementException("Tool[" + index + "]: description is required.",
+                        ExceptionCodes.PARAMETER_NOT_PROVIDED);
+            }
+            if (StringUtils.isBlank(inputSchema)) {
+                throw new APIManagementException("Tool[" + index + "]: input schema is required.",
+                        ExceptionCodes.PARAMETER_NOT_PROVIDED);
+            }
+
+            schemaByToolName.put(toolName, inputSchema);
+            descriptionByToolName.put(toolName, toolDescription);
+        }
+    }
+
+    /**
+     * Populate URI templates with tool metadata from the MCP backend definition.
+     *
+     * @param uriTemplates          Candidate URI templates to enrich
+     * @param schemaByToolName      Map of tool names to their input schemas
+     * @param descriptionByToolName Map of tool names to their descriptions
+     * @param backendId             Backend identifier to set on matched templates' mappings
+     * @return Templates that were matched and updated (never null)
+     */
+    private static Set<URITemplate> populateURITemplatesWithTools(Set<URITemplate> uriTemplates,
+                                                                  Map<String, String> schemaByToolName,
+                                                                  Map<String, String> descriptionByToolName,
+                                                                  String backendId) throws APIManagementException {
+
+        if (uriTemplates == null || uriTemplates.isEmpty()) {
+            return Collections.emptySet();
+        }
+
+        Set<String> tools = new LinkedHashSet<>();
+        Set<URITemplate> matchedTemplates = new LinkedHashSet<>();
+        for (URITemplate uriTemplate : uriTemplates) {
+            if (uriTemplate == null) {
+                continue;
+            }
+            BackendOperationMapping backendMapping = uriTemplate.getBackendOperationMapping();
+            if (backendMapping == null) {
+                continue;
+            }
+            BackendOperation backendOperation = backendMapping.getBackendOperation();
+            if (backendOperation == null) {
+                continue;
+            }
+
+            String operationVerb = (backendOperation.getVerb() != null) ? backendOperation.getVerb().toString() : null;
+            String operationTarget = StringUtils.trimToNull(backendOperation.getTarget());
+
+            if (!SupportedHTTPVerbs.TOOL.toString().equalsIgnoreCase(operationVerb) || operationTarget == null) {
+                continue;
+            }
+
+            String toolSchema = schemaByToolName.get(operationTarget);
+            if (toolSchema == null) {
+                continue;
+            }
+            if (uriTemplate.getUriTemplate() == null || uriTemplate.getUriTemplate().isEmpty()) {
+                uriTemplate.setUriTemplate(operationTarget);
+            }
+            if (uriTemplate.getDescription() == null || uriTemplate.getDescription().isEmpty()) {
+                uriTemplate.setDescription(descriptionByToolName.get(operationTarget));
+            }
+            if (uriTemplate.getSchemaDefinition() == null || uriTemplate.getSchemaDefinition().isEmpty()) {
+                uriTemplate.setSchemaDefinition(toolSchema);
+            }
+            backendMapping.setBackendId(backendId);
+            if (!tools.add(uriTemplate.getUriTemplate())) {
+                log.error("Duplicate MCP tool detected: " + uriTemplate.getUriTemplate());
+                throw new APIManagementException("Tool " + uriTemplate.getUriTemplate() + " is repeated",
+                        ExceptionCodes.DUPLICATE_MCP_TOOLS);
+            }
+            matchedTemplates.add(uriTemplate);
+        }
+        return matchedTemplates;
+    }
+
 
     /**
      * @param api           API
@@ -877,10 +1110,19 @@ public class ApisApiServiceImplUtils {
                                                                                String vhost, boolean mandatoryVHOST)
             throws APIManagementException {
 
-        if (environments.get(environment) == null) {
+        Environment env = environments.get(environment);
+        if (env == null) {
             final String errorMessage = "Gateway environment not found: " + environment;
             throw new APIManagementException(errorMessage, ExceptionCodes.from(
                     ExceptionCodes.INVALID_GATEWAY_ENVIRONMENT, String.format("name '%s'", environment)));
+        } else {
+            if (GatewayMode.READ_ONLY.getMode().equals(env.getMode())) {
+                final String errorMessage = "The mode of gateway environment : " + environment
+                        + " is READ_ONLY. Cannot deploy revision";
+                throw new APIManagementException(errorMessage,
+                        ExceptionCodes.from(ExceptionCodes.READ_ONLY_MODE_GATEWAY_ENVIRONMENT,
+                                String.format("name '%s'", environment)));
+            }
         }
 
         if (mandatoryVHOST && StringUtils.isEmpty(vhost)) {
@@ -1016,4 +1258,6 @@ public class ApisApiServiceImplUtils {
         serviceInfo.put("md5", service.getMd5());
         return serviceInfo;
     }
+
+
 }

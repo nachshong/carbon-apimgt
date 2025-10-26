@@ -22,16 +22,13 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.wso2.carbon.apimgt.api.APIDefinition;
 import org.wso2.carbon.apimgt.api.APIManagementException;
-import org.wso2.carbon.apimgt.api.model.ConfigurationDto;
-import org.wso2.carbon.apimgt.api.model.GatewayAgentConfiguration;
-import org.wso2.carbon.apimgt.api.model.KeyManagerConnectorConfiguration;
-import org.wso2.carbon.apimgt.api.model.Scope;
+import org.wso2.carbon.apimgt.api.model.*;
 import org.wso2.carbon.apimgt.impl.APIConstants;
-import org.wso2.carbon.apimgt.impl.definitions.OASParserUtil;
 import org.wso2.carbon.apimgt.impl.internal.ServiceReferenceHolder;
 import org.wso2.carbon.apimgt.impl.utils.APIUtil;
 import org.wso2.carbon.apimgt.rest.api.admin.v1.dto.*;
 import org.wso2.carbon.apimgt.rest.api.util.utils.RestApiUtil;
+import org.wso2.carbon.apimgt.spec.parser.definitions.OASParserUtil;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -64,6 +61,7 @@ public class SettingsMappingUtil {
         settingsDTO.setGatewayTypes(APIUtil.getGatewayTypes());
         settingsDTO.setIsJWTEnabledForLoginTokens(APIUtil.isJWTEnabledForPortals());
         settingsDTO.setOrgAccessControlEnabled(APIUtil.isOrganizationAccessControlEnabled());
+        settingsDTO.setIsGatewayNotificationEnabled(APIUtil.isGatewayNotificationEnabled());
         return settingsDTO;
     }
 
@@ -77,6 +75,7 @@ public class SettingsMappingUtil {
                         keyManagerConfiguration.getDisplayName(),keyManagerConfiguration.getDefaultScopesClaim(),
                         keyManagerConfiguration.getDefaultConsumerKeyClaim(),
                         keyManagerConfiguration.getConnectionConfigurations(),
+                        keyManagerConfiguration.getAuthConfigurations(),
                         keyManagerConfiguration.getEndpointConfigurations()));
             }
         });
@@ -102,7 +101,8 @@ public class SettingsMappingUtil {
 
     private static SettingsKeyManagerConfigurationDTO fromKeyManagerConfigurationToSettingsKeyManagerConfigurationDTO(
             String name, String displayName, String scopesClaim, String consumerKeyClaim,
-            List<ConfigurationDto> connectionConfigurationDtoList,List<ConfigurationDto> endpointConfigurations) {
+            List<ConfigurationDto> connectionConfigurationDtoList, List<ConfigurationDto> authConfigurationDtoList,
+            List<ConfigurationDto> endpointConfigurations) {
 
         SettingsKeyManagerConfigurationDTO settingsKeyManagerConfigurationDTO =
                 new SettingsKeyManagerConfigurationDTO();
@@ -122,7 +122,23 @@ public class SettingsMappingUtil {
                 keyManagerConfigurationDTO.setTooltip(configurationDto.getTooltip());
                 keyManagerConfigurationDTO.setDefault(configurationDto.getDefaultValue());
                 keyManagerConfigurationDTO.setValues(configurationDto.getValues());
+                keyManagerConfigurationDTO.setUpdateDisabled(configurationDto.isUpdateDisabled());
                 settingsKeyManagerConfigurationDTO.getConfigurations().add(keyManagerConfigurationDTO);
+            }
+        }
+        if (authConfigurationDtoList != null) {
+            for (ConfigurationDto configurationDto : authConfigurationDtoList) {
+                KeyManagerConfigurationDTO keyManagerConfigurationDTO = new KeyManagerConfigurationDTO();
+                keyManagerConfigurationDTO.setName(configurationDto.getName());
+                keyManagerConfigurationDTO.setLabel(configurationDto.getLabel());
+                keyManagerConfigurationDTO.setType(configurationDto.getType());
+                keyManagerConfigurationDTO.setRequired(configurationDto.isRequired());
+                keyManagerConfigurationDTO.setMask(configurationDto.isMask());
+                keyManagerConfigurationDTO.setMultiple(configurationDto.isMultiple());
+                keyManagerConfigurationDTO.setTooltip(configurationDto.getTooltip());
+                keyManagerConfigurationDTO.setDefault(configurationDto.getDefaultValue());
+                keyManagerConfigurationDTO.setValues(configurationDto.getValues());
+                settingsKeyManagerConfigurationDTO.getAuthConfigurations().add(keyManagerConfigurationDTO);
             }
         }
         if (endpointConfigurations != null) {
@@ -153,6 +169,15 @@ public class SettingsMappingUtil {
             settingsFederatedGatewayConfigurationDTO.setType(gatewayConfiguration.getType());
             settingsFederatedGatewayConfigurationDTO.setDisplayName(gatewayConfiguration.getType());
             settingsFederatedGatewayConfigurationDTO.setDefaultHostnameTemplate(gatewayConfiguration.getDefaultHostnameTemplate());
+            List<String> supportedModes = gatewayConfiguration.getSupportedModes();
+            List<String> effectiveModes = (supportedModes == null) ? new ArrayList<>() : new ArrayList<>(supportedModes);
+            if (effectiveModes.isEmpty()) {
+                log.warn(String.format(
+                        "No supported modes derived for gateway type '%s'. Defaulting to '%s'",
+                        gatewayConfiguration.getType(), GatewayMode.WRITE_ONLY.getMode()));
+                effectiveModes.add(GatewayMode.WRITE_ONLY.getMode());
+            }
+            settingsFederatedGatewayConfigurationDTO.setSupportedModes(effectiveModes);
             List<ConfigurationDto> connectionConfigurations = gatewayConfiguration.getConnectionConfigurations();
             if (connectionConfigurations != null) {
                 for (ConfigurationDto dto : connectionConfigurations) {
@@ -169,6 +194,14 @@ public class SettingsMappingUtil {
             SettingsGatewayConfigurationDTO gateway = new SettingsGatewayConfigurationDTO();
             gateway.setType(type);
             gateway.setDisplayName(type);
+            if (APIConstants.API_GATEWAY_TYPE_REGULAR.equals(type) || APIConstants.API_GATEWAY_TYPE_APK.equals(type)) {
+                List<String> supportedModes = new ArrayList<>();
+                supportedModes.add(GatewayMode.WRITE_ONLY.getMode());
+                if (APIConstants.API_GATEWAY_TYPE_APK.equals(type)) {
+                    supportedModes.add(GatewayMode.READ_ONLY.getMode());
+                }
+                gateway.setSupportedModes(supportedModes);
+            }
             if (list.stream().noneMatch(obj -> obj.getType().equals(type))) {
                 list.add(gateway);
             }

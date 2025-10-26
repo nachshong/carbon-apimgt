@@ -136,7 +136,8 @@ public class OAuthAuthenticator implements Authenticator {
         config = getApiManagerConfiguration();
         removeOAuthHeadersFromOutMessage = isRemoveOAuthHeadersFromOutMessage();
         securityContextHeader = getSecurityContextHeader();
-
+        boolean includeTokenInfoInMsgCtx = Boolean.parseBoolean(
+                System.getProperty(APIMgtGatewayConstants.INCLUDE_TOKEN_INFO_IN_MSG_CTX));
         if (headers != null) {
             requestOrigin = (String) headers.get("Origin");
 
@@ -166,6 +167,9 @@ public class OAuthAuthenticator implements Authenticator {
                                         isConsumerKeyHeaderAvailable = true;
                                     } else if (isConsumerKeyHeaderAvailable) {
                                         accessToken = removeLeadingAndTrailing(elements[j].trim());
+                                        if (includeTokenInfoInMsgCtx) {
+                                            synCtx.setProperty(APIMgtGatewayConstants.ACCESS_TOKEN, accessToken);
+                                        }
                                         consumerkeyFound = true;
                                     }
                                 }
@@ -193,7 +197,8 @@ public class OAuthAuthenticator implements Authenticator {
             log.debug("Default Version API invoked");
         }
 
-        if (removeOAuthHeadersFromOutMessage) {
+        String apiType = (String) synCtx.getProperty(APIMgtGatewayConstants.API_TYPE);
+        if (removeOAuthHeadersFromOutMessage && !APIConstants.API_TYPE_MCP.equals(apiType)) {
             //Remove authorization headers sent for authentication at the gateway and pass others to the backend
             if (StringUtils.isNotBlank(remainingAuthHeader.get())) {
                 if (log.isDebugEnabled()) {
@@ -217,6 +222,11 @@ public class OAuthAuthenticator implements Authenticator {
         String httpMethod = (String)((Axis2MessageContext) synCtx).getAxis2MessageContext().
                 getProperty(Constants.Configuration.HTTP_METHOD);
         String matchingResource = (String) synCtx.getProperty(APIConstants.API_ELECTED_RESOURCE);
+
+        if (StringUtils.equals(APIConstants.API_TYPE_MCP, apiType)) {
+            httpMethod = synCtx.getProperty("MCP_HTTP_METHOD").toString();
+            matchingResource = (String) synCtx.getProperty("MCP_API_ELECTED_RESOURCE");
+        }
         SignedJWTInfo signedJWTInfo = null;
 
         //If the matching resource does not require authentication
@@ -301,6 +311,9 @@ public class OAuthAuthenticator implements Authenticator {
                     log.debug("Could not find api version");
                 }
             }
+            if (includeTokenInfoInMsgCtx) {
+                synCtx.setProperty(APIMgtGatewayConstants.ACCESS_TOKEN_INVALID_REASON, "Access token invalid");
+            }
             return new AuthenticationResponse(false, isMandatory, true,
                     APISecurityConstants.API_AUTH_MISSING_CREDENTIALS, "Required OAuth credentials not provided");
         } else {
@@ -331,6 +344,9 @@ public class OAuthAuthenticator implements Authenticator {
                 info = getAPIKeyValidator().getKeyValidationInfo(apiContext, accessToken, apiVersion, authenticationScheme,
                         matchingResource, httpMethod, defaultVersionInvoked,keyManagerList);
             } catch (APISecurityException ex) {
+                if (includeTokenInfoInMsgCtx) {
+                    synCtx.setProperty(APIMgtGatewayConstants.ACCESS_TOKEN_INVALID_REASON, "Access token invalid");
+                }
                 return new AuthenticationResponse(false, isMandatory, true, ex.getErrorCode(), ex.getMessage());
             }
             context.stop();
@@ -391,6 +407,13 @@ public class OAuthAuthenticator implements Authenticator {
         } else {
             if(log.isDebugEnabled()){
                 log.debug("User is NOT authorized to access the Resource");
+            }
+            if (includeTokenInfoInMsgCtx) {
+                if (info.isExpired()) {
+                    synCtx.setProperty(APIMgtGatewayConstants.ACCESS_TOKEN_INVALID_REASON, "Access token expired");
+                } else {
+                    synCtx.setProperty(APIMgtGatewayConstants.ACCESS_TOKEN_INVALID_REASON, "Access token invalid");
+                }
             }
             return new AuthenticationResponse(false, isMandatory, true, info.getValidationStatus(),
                     "Access failure for API: " + apiContext +

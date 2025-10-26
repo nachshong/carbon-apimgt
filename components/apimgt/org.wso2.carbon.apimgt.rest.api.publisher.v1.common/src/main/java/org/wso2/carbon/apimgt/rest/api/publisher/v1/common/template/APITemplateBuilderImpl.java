@@ -278,13 +278,13 @@ public class APITemplateBuilderImpl implements APITemplateBuilder {
             ConfigContext configcontext = new APIConfigContext(this.api);
             configcontext = new TemplateUtilContext(configcontext);
 
-            if (APIConstants.API_SUBTYPE_DEFAULT.equals(api.getSubtype())) {
+            if (APIConstants.API_TYPE_MCP.equalsIgnoreCase(api.getType()) ||
+                    APIConstants.API_SUBTYPE_DEFAULT.equals(api.getSubtype())) {
                 configcontext = new SecurityConfigContext(configcontext, api);
                 configcontext = new EndpointConfigContext(configcontext, this.apiProduct, api);
             } else if (APIConstants.API_SUBTYPE_AI_API.equals(api.getSubtype())) {
                 configcontext = new EndpointConfigContext(configcontext, this.apiProduct, api, endpointConfig);
             }
-
 
             configcontext.validate();
 

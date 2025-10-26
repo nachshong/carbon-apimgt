@@ -101,12 +101,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Objects;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 
 public class ApplicationsApiServiceImpl implements ApplicationsApiService {
     private static final Log log = LogFactory.getLog(ApplicationsApiServiceImpl.class);
-    public static final String SP_NAME_APPLICATION = "sp.name.application";
 
     boolean orgWideAppUpdateEnabled = Boolean.getBoolean(APIConstants.ORGANIZATION_WIDE_APPLICATION_UPDATE_ENABLED);
 
@@ -137,7 +137,7 @@ public class ApplicationsApiServiceImpl implements ApplicationsApiService {
 
         // todo: Do a second level filtering for the incoming group ID.
         // todo: eg: use case is when there are lots of applications which is accessible to his group "g1", he wants to see
-        // todo: what are the applications shared to group "g2" among them. 
+        // todo: what are the applications shared to group "g2" among them.
         groupId = RestApiUtil.getLoggedInUserGroupId();
         try {
             String organization = RestApiUtil.getValidatedOrganization(messageContext);
@@ -207,12 +207,13 @@ public class ApplicationsApiServiceImpl implements ApplicationsApiService {
      * @param appOwner            Target owner of the application
      * @param skipApplicationKeys Skip application keys while importing
      * @param update              Update if existing application found or import
+     * @param ignoreTier          Ignore tier and proceed with subscribed APIs
      * @param messageContext      Message Context
      * @return imported Application
      */
     @Override public Response applicationsImportPost(InputStream fileInputStream, Attachment fileDetail,
             Boolean preserveOwner, Boolean skipSubscriptions, String appOwner, Boolean skipApplicationKeys,
-            Boolean update, MessageContext messageContext) throws APIManagementException {
+            Boolean update, Boolean ignoreTier, MessageContext messageContext) throws APIManagementException {
         String ownerId;
         Application application;
 
@@ -248,6 +249,10 @@ public class ApplicationsApiServiceImpl implements ApplicationsApiService {
                 ImportUtils.validateOwner(username, applicationGroupId, apiConsumer);
             }
 
+            // This is to handle if the subscriber hasn't logged into the APIM Devportal
+            // and not available in the AM_SUBSCRIBER table
+            ImportUtils.validateSubscriber(ownerId, applicationGroupId, apiConsumer);
+
             String organization = RestApiUtil.getValidatedOrganization(messageContext);
             OrganizationInfo orgInfo = RestApiUtil.getOrganizationInfo(messageContext);
 
@@ -255,6 +260,14 @@ public class ApplicationsApiServiceImpl implements ApplicationsApiService {
                     && update) {
                 int appId = APIUtil.getApplicationId(applicationDTO.getName(), ownerId);
                 Application oldApplication = apiConsumer.getApplicationById(appId);
+                if (APIConstants.ApplicationStatus.UPDATE_PENDING.equals(oldApplication.getStatus())) {
+                    RestApiUtil.handleConflict("Application is in UPDATE PENDING state " +
+                            "and cannot be updated until the pending update is resolved.", log);
+                }
+                if (APIConstants.ApplicationStatus.APPLICATION_CREATED.equals(oldApplication.getStatus()) ||
+                        APIConstants.ApplicationStatus.APPLICATION_REJECTED.equals(oldApplication.getStatus())) {
+                    RestApiUtil.handleBadRequest("Applications that are not yet approved cannot be updated.", log);
+                }
                 application = preProcessAndUpdateApplication(ownerId, applicationDTO, oldApplication,
                         oldApplication.getUUID(), orgInfo);
             } else {
@@ -266,7 +279,7 @@ public class ApplicationsApiServiceImpl implements ApplicationsApiService {
             if (skipSubscriptions == null || !skipSubscriptions) {
                 skippedAPIs = ImportUtils
                         .importSubscriptions(exportedApplication.getSubscribedAPIs(), ownerId, application,
-                                update, apiConsumer, organization);
+                                update, ignoreTier, apiConsumer, organization);
             }
             Application importedApplication = apiConsumer.getApplicationById(application.getId());
             importedApplication.setOwner(ownerId);
@@ -476,9 +489,16 @@ public class ApplicationsApiServiceImpl implements ApplicationsApiService {
             if (oldApplication == null) {
                 RestApiUtil.handleResourceNotFoundError(RestApiConstants.RESOURCE_APPLICATION, applicationId, log);
             }
-
             if (!orgWideAppUpdateEnabled && !RestAPIStoreUtils.isUserOwnerOfApplication(oldApplication)) {
                 RestApiUtil.handleAuthorizationFailure(RestApiConstants.RESOURCE_APPLICATION, applicationId, log);
+            }
+            if (APIConstants.ApplicationStatus.UPDATE_PENDING.equals(oldApplication.getStatus())) {
+                RestApiUtil.handleConflict("Application is in UPDATE PENDING state " +
+                        "and cannot be updated until the pending update is resolved.", log);
+            }
+            if (APIConstants.ApplicationStatus.APPLICATION_CREATED.equals(oldApplication.getStatus()) ||
+                    APIConstants.ApplicationStatus.APPLICATION_REJECTED.equals(oldApplication.getStatus())) {
+                RestApiUtil.handleBadRequest("Applications that are not yet approved cannot be updated.", log);
             }
             if (body.getName() != null && !body.getName().equalsIgnoreCase(oldApplication.getName())) {
                 if (APIUtil.isApplicationExist(username, body.getName(),
@@ -583,7 +603,7 @@ public class ApplicationsApiServiceImpl implements ApplicationsApiService {
         apiConsumer.updateApplication(application);
 
         // Added to use the application name as part of sp name instead of application UUID when specified
-        String applicationSpNameProp = System.getProperty(SP_NAME_APPLICATION);
+        String applicationSpNameProp = System.getProperty(APIConstants.KeyManager.SP_NAME_APPLICATION);
         boolean applicationSpName = Boolean.parseBoolean(applicationSpNameProp);
         //If application name is renamed, need to update SP app as well
         if (applicationSpName && !application.getName().equals(oldApplication.getName())) {
@@ -845,6 +865,11 @@ public class ApplicationsApiServiceImpl implements ApplicationsApiService {
             Application application = apiConsumer.getApplicationByUUID(applicationId);
             if (application != null) {
                 if (orgWideAppUpdateEnabled || RestAPIStoreUtils.isUserOwnerOfApplication(application)) {
+                    if (APIConstants.ApplicationStatus.APPLICATION_CREATED.equals(application.getStatus())
+                            || APIConstants.ApplicationStatus.APPLICATION_REJECTED.equals(application.getStatus())) {
+                        RestApiUtil.handleBadRequest(
+                                "Cannot generate keys for applications that are not yet approved.", log);
+                    }
                     String[] accessAllowDomainsArray = {"ALL"};
                     JSONObject jsonParamObj = new JSONObject();
                     jsonParamObj.put(ApplicationConstants.OAUTH_CLIENT_USERNAME, username);
@@ -1232,7 +1257,7 @@ public class ApplicationsApiServiceImpl implements ApplicationsApiService {
         String username = RestApiCommonUtil.getLoggedInUsername();
         JSONObject jsonParamObj = new JSONObject();
         APIConsumer apiConsumer = APIManagerFactory.getInstance().getAPIConsumer(username);
-        Application application = apiConsumer.getApplicationByUUID(applicationId);
+        Application application = apiConsumer.getLightweightApplicationByUUID(applicationId);
         String keyManagerName = APIConstants.KeyManager.DEFAULT_KEY_MANAGER;
         if (StringUtils.isNotEmpty(body.getKeyManager())) {
             keyManagerName = body.getKeyManager();
@@ -1309,6 +1334,13 @@ public class ApplicationsApiServiceImpl implements ApplicationsApiService {
         try {
             APIConsumer apiConsumer = APIManagerFactory.getInstance().getAPIConsumer(username);
             Application application = apiConsumer.getLightweightApplicationByUUID(applicationId);
+            if (application == null) {
+                RestApiUtil.handleResourceNotFoundError(RestApiConstants.RESOURCE_APPLICATION, applicationId, log);
+            }
+            // Only the application owner can delete OAuth keys
+            if (!RestAPIStoreUtils.isUserOwnerOfApplication(application)) {
+                RestApiUtil.handleAuthorizationFailure(RestApiConstants.RESOURCE_APPLICATION, applicationId, log);
+            }
             boolean result = apiConsumer.removalKeys(application, keyMappingId, xWSO2Tenant);
             if (result) {
                 return Response.ok().build();

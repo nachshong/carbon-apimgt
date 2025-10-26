@@ -71,6 +71,18 @@ public interface APIManager {
     APIInfo getAPIInfoByUUID(String id) throws APIManagementException;
 
     /**
+     * Returns the minimalistic information about the API given the UUID. This will only query from AM database AM_API
+     * table.
+     *
+     * @param id      UUID of the API
+     * @param apiType API Type
+     * @return basic information about the API
+     * @throws APIManagementException error while getting the API information from AM_API
+     */
+    APIInfo getAPIInfoByUUID(String id, String apiType) throws APIManagementException;
+
+
+    /**
      * Get API or APIProduct by registry artifact id
      *
      * @param uuid   Registry artifact id
@@ -79,6 +91,19 @@ public interface APIManager {
      * @throws APIManagementException
      */
     ApiTypeWrapper getAPIorAPIProductByUUID(String uuid, String organization) throws APIManagementException;
+
+    /**
+     * Get API or APIProduct by registry artifact id
+     *
+     * @param uuid         Registry artifact id
+     * @param organization Organization
+     * @param apiType      API Type
+     * @return ApiTypeWrapper wrapping the API or APIProduct of the provided artifact id
+     * @throws APIManagementException
+     */
+    ApiTypeWrapper getAPIorAPIProductByUUID(String uuid, String organization, String apiType)
+            throws APIManagementException;
+
 
     /**
      * Get minimal details of API by registry artifact id
@@ -279,6 +304,25 @@ public interface APIManager {
     void addSubscriber(String username, String groupingId) throws APIManagementException;
 
     /**
+     * Creates a new subscriber given the username, the grouping Id, and the organization.
+     *
+     * @param username   Username of the subscriber to be added
+     * @param groupingId The groupId to which the subscriber belongs
+     * @param organization The organization to which the subscriber belongs
+     * @throws APIManagementException If failed to add the subscriber
+     */
+    void addSubscriber(String username, String groupingId, String organization) throws APIManagementException;
+
+    /**
+     * Creates a new subscriber without default application given the username and the grouping Id
+     *
+     * @param username   Username of the subscriber to be added
+     * @param groupingId - the groupId to which the subscriber belongs to
+     * @throws org.wso2.carbon.apimgt.api.APIManagementException if failed add subscriber
+     */
+    void addSubscriberOnly(String username, String groupingId) throws APIManagementException;
+
+    /**
      * Updates the details of the given subscriber.
      *
      * @param subscriber The subscriber to be updated
@@ -395,6 +439,14 @@ public interface APIManager {
     boolean isScopeKeyExist(String scopeKey, int tenantid) throws APIManagementException;
 
     /**
+     * Check whether the given scope key is already available in the Key Manager.
+     * @param scopeKey candidate scope key
+     * @param tenantDomain tenant domain
+     * @return true if the scope key is already available in KM
+     */
+    boolean isScopeKeyExistInKeyManager(String scopeKey, String tenantDomain);
+
+    /**
      * Check whether the given scope key is already assigned to any API under given tenant.
      *
      * @param scopeKey     Scope
@@ -428,6 +480,21 @@ public interface APIManager {
      * @throws APIManagementException - If an error occurs while checking the value in the APIM DB.
      */
     boolean isDuplicateContextTemplateMatchingOrganization(String contextTemplate, String orgId) throws APIManagementException;
+
+    /**
+     * Check if a given context template already exists in an organization and gateway type
+     *
+     * @param contextTemplate - The contextTemplate to be checked for
+     *                        <p>
+     *                        Ex: /foo/{version}/bar
+     *                        </p>
+     * @param orgId  identifier of the organization
+     * @param gatewayVendor type of the gateway (e.g. 'WSO2', 'AWS', etc.)
+     * @return boolean - true if the template exists, false otherwise.
+     * @throws APIManagementException - If an error occurs while checking the value in the APIM DB.
+     */
+    boolean isDuplicateContextTemplateMatchingOrganizationAndGatewayVendor(String contextTemplate, String orgId,
+                                                                           String gatewayVendor) throws APIManagementException;
 
     /**
      * get a set of API names that matches given context template

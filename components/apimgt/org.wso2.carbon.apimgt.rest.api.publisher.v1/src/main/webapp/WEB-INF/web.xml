@@ -57,7 +57,9 @@
                 org.wso2.carbon.apimgt.rest.api.publisher.v1.LlmProvidersApi,
                 org.wso2.carbon.apimgt.rest.api.publisher.v1.LabelsApi,
                 org.wso2.carbon.apimgt.rest.api.publisher.v1.OrganizationsApi,
-                org.wso2.carbon.apimgt.rest.api.publisher.v1.DesignAssistantApi
+                org.wso2.carbon.apimgt.rest.api.publisher.v1.DesignAssistantApi,
+                org.wso2.carbon.apimgt.rest.api.publisher.v1.AiServiceProvidersApi,
+                org.wso2.carbon.apimgt.rest.api.publisher.v1.McpServersApi
             </param-value>
         </init-param>
         <init-param>
@@ -76,7 +78,7 @@
         <init-param>
             <param-name>jaxrs.inInterceptors</param-name>
             <param-value>
-                org.wso2.carbon.apimgt.rest.api.util.interceptors.URLValidationInterceptor(majorVersion=v4 latestVersion=v4.3),
+                org.wso2.carbon.apimgt.rest.api.util.interceptors.URLValidationInterceptor(majorVersion=v4 latestVersion=v4.4),
                 org.wso2.carbon.apimgt.rest.api.util.interceptors.auth.TokenMergeInterceptor,
                 org.wso2.carbon.apimgt.rest.api.util.interceptors.PreAuthenticationInterceptor,
                 org.wso2.carbon.apimgt.rest.api.util.interceptors.auth.OAuthAuthenticationInterceptor,
