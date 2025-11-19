@@ -136,6 +136,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 import java.util.Set;
 import java.util.UUID;
 import javax.validation.constraints.NotNull;
@@ -1989,7 +1990,7 @@ public class ImportUtils {
         try {
             OperationPolicyDefinition synapseGatewayDefinition = null;
             OperationPolicyDefinition ccGatewayDefinition = null;
-            String[] fileLocations = pathToArchive.split("/");
+            String[] fileLocations = pathToArchive.split(Pattern.quote(File.separator));
 
             // File names of all types should be the same
             String fileName = fileLocations[fileLocations.length - 1];
