@@ -103,6 +103,9 @@ public class RegistryPersistenceUtil {
     //Stores <tenantId, isTenantRXTLoaded> to load RXTs only once
     private static final ConcurrentHashMap<Integer, Boolean> tenantRxtLoaded = new ConcurrentHashMap<>();
 
+    private static final Object loadloadTenantAPIRXTLock = new Object();
+    private static final Object registerCustomQueriesLock = new Object();
+
     /**
      * When an input is having '-AT-',replace it with @ [This is required to persist API data between registry and database]
      *
@@ -584,12 +587,20 @@ public class RegistryPersistenceUtil {
     }
 
     public static void loadloadTenantAPIRXT(String tenant, int tenantID) throws RegistryException, PersistenceException {
-        // Synchronize on the tenant specific lock
-        synchronized (tenantID + "_loadTenantAPIRXT") {
-            // Check if RXTs have already been loaded for this tenant
+        // Check if RXTs have already been loaded for this tenant
+        if (Boolean.TRUE.equals(tenantRxtLoaded.get(tenantID))) {
+            return; // RXTs already loaded, exit method
+        }
+
+        synchronized (loadloadTenantAPIRXTLock) {
+            log.debug("Enter loadloadTenantAPIRXT synchronized.");
+
+            // Check again inside lock
             if (Boolean.TRUE.equals(tenantRxtLoaded.get(tenantID))) {
-                return; // RXTs already loaded, exit method
+                log.debug("RXTs already loaded, exit method.");
+                return;
             }
+
             RegistryService registryService = ServiceReferenceHolder.getInstance().getRegistryService();
             UserRegistry registry = null;
             try {
@@ -661,6 +672,7 @@ public class RegistryPersistenceUtil {
             }
             // Mark RXTs as loaded for this tenant
             tenantRxtLoaded.put(tenantID, Boolean.TRUE);
+            log.debug("Exit loadloadTenantAPIRXT - Mark RXTs as loaded for this tenant.");
         }
     }
 
@@ -1920,100 +1932,105 @@ public class RegistryPersistenceUtil {
         int tenantId = getTenantManager().getTenantId(organization);
         UserRealm tenantUserRealm = (UserRealm) ServiceReferenceHolder.getInstance().getRealmService()
                 .getTenantUserRealm(tenantId);
+
         if (username == null) {
-                RegistryAuthorizationManager authorizationManager = new RegistryAuthorizationManager(tenantUserRealm);
-                authorizationManager.authorizeRole(APIConstants.ANONYMOUS_ROLE, path, ActionConstants.GET);
-
-
+            RegistryAuthorizationManager authorizationManager = new RegistryAuthorizationManager(tenantUserRealm);
+            authorizationManager.authorizeRole(APIConstants.ANONYMOUS_ROLE, path, ActionConstants.GET);
         } else if (!MultitenantConstants.SUPER_TENANT_DOMAIN_NAME.equals(organization)) {
             AuthorizationManager authManager = tenantUserRealm.getAuthorizationManager();
-                authManager.authorizeRole(APIConstants.ANONYMOUS_ROLE, path, ActionConstants.GET);
+            authManager.authorizeRole(APIConstants.ANONYMOUS_ROLE, path, ActionConstants.GET);
         }
 
-        if (!configRegistry.resourceExists(tagsQueryPath)) {
-            Resource resource = configRegistry.newResource();
+        if (!configRegistry.resourceExists(tagsQueryPath) || !configRegistry.resourceExists(latestAPIsQueryPath) || !configRegistry.resourceExists(resourcesByTag)) {
+            synchronized(registerCustomQueriesLock) {
+                log.debug("Enter registerCustomQueries synchronized.");
+                if (!configRegistry.resourceExists(tagsQueryPath)) {
+                    Resource resource = configRegistry.newResource();
 
-            //Tag Search Query
-            //'MOCK_PATH' used to bypass ChrootWrapper -> filterSearchResult. A valid registry path is
-            // a must for executeQuery results to be passed to client side
-            String sql1 =
-                    "SELECT '" + RegistryPersistenceUtil.getMountedPath(RegistryContext.getBaseInstance(),
-                            RegistryConstants.GOVERNANCE_REGISTRY_BASE_PATH) +
-                            APIConstants.GOVERNANCE_COMPONENT_REGISTRY_LOCATION + "' AS MOCK_PATH, " +
-                            "   RT.REG_TAG_NAME AS TAG_NAME, " +
-                            "   COUNT(RT.REG_TAG_NAME) AS USED_COUNT " +
-                            "FROM " +
-                            "   REG_RESOURCE_TAG RRT, " +
-                            "   REG_TAG RT, " +
-                            "   REG_RESOURCE R, " +
-                            "   REG_RESOURCE_PROPERTY RRP, " +
-                            "   REG_PROPERTY RP " +
-                            "WHERE " +
-                            "   RT.REG_ID = RRT.REG_TAG_ID  " +
-                            "   AND R.REG_MEDIA_TYPE = 'application/vnd.wso2-api+xml' " +
-                            "   AND RRT.REG_VERSION = R.REG_VERSION " +
-                            "   AND RRP.REG_VERSION = R.REG_VERSION " +
-                            "   AND RP.REG_NAME = 'STATUS' " +
-                            "   AND RRP.REG_PROPERTY_ID = RP.REG_ID " +
-                            "   AND (RP.REG_VALUE !='DEPRECATED' AND RP.REG_VALUE !='CREATED' AND RP.REG_VALUE !='BLOCKED' AND RP.REG_VALUE !='RETIRED') " +
-                            "GROUP BY " +
-                            "   RT.REG_TAG_NAME";
-            resource.setContent(sql1);
-            resource.setMediaType(RegistryConstants.SQL_QUERY_MEDIA_TYPE);
-            resource.addProperty(RegistryConstants.RESULT_TYPE_PROPERTY_NAME,
-                    RegistryConstants.TAG_SUMMARY_RESULT_TYPE);
-            configRegistry.put(tagsQueryPath, resource);
-        }
-        if (!configRegistry.resourceExists(latestAPIsQueryPath)) {
-            //Recently added APIs
-            Resource resource = configRegistry.newResource();
-            String sql =
-                    "SELECT " +
-                            "   RR.REG_PATH_ID AS REG_PATH_ID, " +
-                            "   RR.REG_NAME AS REG_NAME " +
-                            "FROM " +
-                            "   REG_RESOURCE RR, " +
-                            "   REG_RESOURCE_PROPERTY RRP, " +
-                            "   REG_PROPERTY RP " +
-                            "WHERE " +
-                            "   RR.REG_MEDIA_TYPE = 'application/vnd.wso2-api+xml' " +
-                            "   AND RRP.REG_VERSION = RR.REG_VERSION " +
-                            "   AND RP.REG_NAME = 'STATUS' " +
-                            "   AND RRP.REG_PROPERTY_ID = RP.REG_ID " +
-                            "   AND (RP.REG_VALUE !='DEPRECATED' AND RP.REG_VALUE !='CREATED') " +
-                            "ORDER BY " +
-                            "   RR.REG_LAST_UPDATED_TIME " +
-                            "DESC ";
-            resource.setContent(sql);
-            resource.setMediaType(RegistryConstants.SQL_QUERY_MEDIA_TYPE);
-            resource.addProperty(RegistryConstants.RESULT_TYPE_PROPERTY_NAME,
-                    RegistryConstants.RESOURCES_RESULT_TYPE);
-            configRegistry.put(latestAPIsQueryPath, resource);
-        }
-        if (!configRegistry.resourceExists(resourcesByTag)) {
-            Resource resource = configRegistry.newResource();
-            String sql =
-                    "SELECT '" + RegistryPersistenceUtil.getMountedPath(RegistryContext.getBaseInstance(),
-                            RegistryConstants.GOVERNANCE_REGISTRY_BASE_PATH) +
-                            APIConstants.GOVERNANCE_COMPONENT_REGISTRY_LOCATION + "' AS MOCK_PATH, " +
-                            "   R.REG_UUID AS REG_UUID " +
-                            "FROM " +
-                            "   REG_RESOURCE_TAG RRT, " +
-                            "   REG_TAG RT, " +
-                            "   REG_RESOURCE R, " +
-                            "   REG_PATH RP " +
-                            "WHERE " +
-                            "   RT.REG_TAG_NAME = ? " +
-                            "   AND R.REG_MEDIA_TYPE = 'application/vnd.wso2-api+xml' " +
-                            "   AND RP.REG_PATH_ID = R.REG_PATH_ID " +
-                            "   AND RT.REG_ID = RRT.REG_TAG_ID " +
-                            "   AND RRT.REG_VERSION = R.REG_VERSION ";
+                    //Tag Search Query
+                    //'MOCK_PATH' used to bypass ChrootWrapper -> filterSearchResult. A valid registry path is
+                    // a must for executeQuery results to be passed to client side
+                    String sql1 =
+                            "SELECT '" + RegistryPersistenceUtil.getMountedPath(RegistryContext.getBaseInstance(),
+                                    RegistryConstants.GOVERNANCE_REGISTRY_BASE_PATH) +
+                                    APIConstants.GOVERNANCE_COMPONENT_REGISTRY_LOCATION + "' AS MOCK_PATH, " +
+                                    "   RT.REG_TAG_NAME AS TAG_NAME, " +
+                                    "   COUNT(RT.REG_TAG_NAME) AS USED_COUNT " +
+                                    "FROM " +
+                                    "   REG_RESOURCE_TAG RRT, " +
+                                    "   REG_TAG RT, " +
+                                    "   REG_RESOURCE R, " +
+                                    "   REG_RESOURCE_PROPERTY RRP, " +
+                                    "   REG_PROPERTY RP " +
+                                    "WHERE " +
+                                    "   RT.REG_ID = RRT.REG_TAG_ID  " +
+                                    "   AND R.REG_MEDIA_TYPE = 'application/vnd.wso2-api+xml' " +
+                                    "   AND RRT.REG_VERSION = R.REG_VERSION " +
+                                    "   AND RRP.REG_VERSION = R.REG_VERSION " +
+                                    "   AND RP.REG_NAME = 'STATUS' " +
+                                    "   AND RRP.REG_PROPERTY_ID = RP.REG_ID " +
+                                    "   AND (RP.REG_VALUE !='DEPRECATED' AND RP.REG_VALUE !='CREATED' AND RP.REG_VALUE !='BLOCKED' AND RP.REG_VALUE !='RETIRED') " +
+                                    "GROUP BY " +
+                                    "   RT.REG_TAG_NAME";
+                    resource.setContent(sql1);
+                    resource.setMediaType(RegistryConstants.SQL_QUERY_MEDIA_TYPE);
+                    resource.addProperty(RegistryConstants.RESULT_TYPE_PROPERTY_NAME,
+                            RegistryConstants.TAG_SUMMARY_RESULT_TYPE);
+                    configRegistry.put(tagsQueryPath, resource);
+                }
+                if (!configRegistry.resourceExists(latestAPIsQueryPath)) {
+                    //Recently added APIs
+                    Resource resource = configRegistry.newResource();
+                    String sql =
+                            "SELECT " +
+                                    "   RR.REG_PATH_ID AS REG_PATH_ID, " +
+                                    "   RR.REG_NAME AS REG_NAME " +
+                                    "FROM " +
+                                    "   REG_RESOURCE RR, " +
+                                    "   REG_RESOURCE_PROPERTY RRP, " +
+                                    "   REG_PROPERTY RP " +
+                                    "WHERE " +
+                                    "   RR.REG_MEDIA_TYPE = 'application/vnd.wso2-api+xml' " +
+                                    "   AND RRP.REG_VERSION = RR.REG_VERSION " +
+                                    "   AND RP.REG_NAME = 'STATUS' " +
+                                    "   AND RRP.REG_PROPERTY_ID = RP.REG_ID " +
+                                    "   AND (RP.REG_VALUE !='DEPRECATED' AND RP.REG_VALUE !='CREATED') " +
+                                    "ORDER BY " +
+                                    "   RR.REG_LAST_UPDATED_TIME " +
+                                    "DESC ";
+                    resource.setContent(sql);
+                    resource.setMediaType(RegistryConstants.SQL_QUERY_MEDIA_TYPE);
+                    resource.addProperty(RegistryConstants.RESULT_TYPE_PROPERTY_NAME,
+                            RegistryConstants.RESOURCES_RESULT_TYPE);
+                    configRegistry.put(latestAPIsQueryPath, resource);
+                }
+                if (!configRegistry.resourceExists(resourcesByTag)) {
+                    Resource resource = configRegistry.newResource();
+                    String sql =
+                            "SELECT '" + RegistryPersistenceUtil.getMountedPath(RegistryContext.getBaseInstance(),
+                                    RegistryConstants.GOVERNANCE_REGISTRY_BASE_PATH) +
+                                    APIConstants.GOVERNANCE_COMPONENT_REGISTRY_LOCATION + "' AS MOCK_PATH, " +
+                                    "   R.REG_UUID AS REG_UUID " +
+                                    "FROM " +
+                                    "   REG_RESOURCE_TAG RRT, " +
+                                    "   REG_TAG RT, " +
+                                    "   REG_RESOURCE R, " +
+                                    "   REG_PATH RP " +
+                                    "WHERE " +
+                                    "   RT.REG_TAG_NAME = ? " +
+                                    "   AND R.REG_MEDIA_TYPE = 'application/vnd.wso2-api+xml' " +
+                                    "   AND RP.REG_PATH_ID = R.REG_PATH_ID " +
+                                    "   AND RT.REG_ID = RRT.REG_TAG_ID " +
+                                    "   AND RRT.REG_VERSION = R.REG_VERSION ";
 
-            resource.setContent(sql);
-            resource.setMediaType(RegistryConstants.SQL_QUERY_MEDIA_TYPE);
-            resource.addProperty(RegistryConstants.RESULT_TYPE_PROPERTY_NAME,
-                    RegistryConstants.RESOURCE_UUID_RESULT_TYPE);
-            configRegistry.put(resourcesByTag, resource);
+                    resource.setContent(sql);
+                    resource.setMediaType(RegistryConstants.SQL_QUERY_MEDIA_TYPE);
+                    resource.addProperty(RegistryConstants.RESULT_TYPE_PROPERTY_NAME,
+                            RegistryConstants.RESOURCE_UUID_RESULT_TYPE);
+                    configRegistry.put(resourcesByTag, resource);
+                }
+                log.debug("Exit registerCustomQueries synchronized.");
+            }
         }
     }
 
