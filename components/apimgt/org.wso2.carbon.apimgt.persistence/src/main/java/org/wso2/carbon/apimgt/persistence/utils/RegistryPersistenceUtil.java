@@ -2022,6 +2022,16 @@ public class RegistryPersistenceUtil {
     }
 
 
+    /**
+     * Extracts the provider name from the API path.
+     * <p><b>Note:</b> This method only works for current API paths (paths containing "provider/").
+     * For revision paths (paths containing "/apis/{uuid}/{revId}"), use
+     * {@link #extractProvider(String, String, Registry)} instead.</p>
+     *
+     * @param apiPath the current API path containing "provider/" (e.g., /apimgt/applicationdata/provider/admin/WSDL/1.0.0/api)
+     * @param apiName the API name
+     * @return the provider name
+     */
     public static String extractProvider(String apiPath, String apiName) {
         int startIndex = apiPath.indexOf(APIConstants.API_PROVIDER_SUFFIX_SLASH) +
                 APIConstants.API_PROVIDER_SUFFIX_SLASH.length();
@@ -2111,5 +2121,91 @@ public class RegistryPersistenceUtil {
             endIndex = query.length();
         }
         return query.substring(startIndex, endIndex);
+    }
+
+    public static String extractApiSourcePath(String apiPath) throws APIPersistenceException {
+        if (apiPath == null) {
+            throw new APIPersistenceException("API path cannot be null");
+        }
+
+        int prependIndex = apiPath.lastIndexOf(APIConstants.API_RESOURCE_NAME);
+        if (prependIndex == -1) {
+            throw new APIPersistenceException("API resource name '" + APIConstants.API_RESOURCE_NAME
+                    + "' not found in API path: " + apiPath);
+        }
+
+        return apiPath.substring(0, prependIndex);
+    }
+
+    /**
+     * Extracts the provider name from the API path.
+     * If the path is a revision path, it retrieves the current API path to extract the provider.
+     *
+     * @param apiPath  the API path (can be a current API path or revision path)
+     * @param apiName  the API name
+     * @param registry the registry to lookup current API path for revisions
+     * @return the provider name
+     * @throws APIPersistenceException if path parsing fails
+     */
+    public static String extractProvider(String apiPath, String apiName, Registry registry)
+            throws APIPersistenceException {
+        if (apiPath == null || StringUtils.isBlank(apiName)) {
+            throw new APIPersistenceException("API path cannot be null or empty");
+        }
+        if (isRevisionPath(apiPath)) {
+            String apiId = extractApiIdFromRevisionPath(apiPath);
+            try {
+                String currentApiPath = GovernanceUtils.getArtifactPath(registry, apiId);
+                if (currentApiPath == null) {
+                    throw new APIPersistenceException("Unable to find current API path for revision: " + apiPath);
+                }
+                return extractProvider(currentApiPath, apiName);
+            } catch (GovernanceException e) {
+                throw new APIPersistenceException("Error retrieving current API path for revision: " + apiPath, e);
+            } catch (IndexOutOfBoundsException e) {
+                throw new APIPersistenceException("Invalid API path format for revision: " + apiPath, e);
+            }
+        }
+        try {
+            return extractProvider(apiPath, apiName);
+        } catch (IndexOutOfBoundsException e) {
+            throw new APIPersistenceException("Invalid API path format for current: " + apiPath, e);
+        }
+    }
+
+    /**
+     * Checks if the given API path is a revision path.
+     *
+     * @param apiPath the API path to check
+     * @return true if the path is a revision path, false otherwise
+     */
+    public static boolean isRevisionPath(String apiPath) {
+        return apiPath != null && apiPath.contains(APIConstants.API_REVISION_LOCATION);
+    }
+
+    /**
+     * Extracts the API UUID from a revision path.
+     * Revision path format: /apimgt/applicationdata/apis/{uuid}/{revisionId}/api
+     *
+     * @param revisionPath the revision path
+     * @return the API UUID
+     * @throws APIPersistenceException if the path format is invalid
+     */
+    public static String extractApiIdFromRevisionPath(String revisionPath) throws APIPersistenceException {
+        if (revisionPath == null) {
+            throw new APIPersistenceException("Revision path cannot be null");
+        }
+        // Path format: /apimgt/applicationdata/apis/{uuid}/{revisionId}/api
+        String prefix = APIConstants.API_REVISION_LOCATION + RegistryConstants.PATH_SEPARATOR;
+        int startIndex = revisionPath.indexOf(prefix);
+        if (startIndex == -1) {
+            throw new APIPersistenceException("Invalid revision path: " + revisionPath);
+        }
+        startIndex += prefix.length();
+        int endIndex = revisionPath.indexOf(RegistryConstants.PATH_SEPARATOR, startIndex);
+        if (endIndex == -1) {
+            throw new APIPersistenceException("Invalid revision path format, cannot extract API UUID: " + revisionPath);
+        }
+        return revisionPath.substring(startIndex, endIndex);
     }
 }

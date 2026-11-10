@@ -20,10 +20,6 @@ package org.wso2.carbon.apimgt.rest.api.publisher.v1.common.mappings;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.gson.Gson;
-import io.apicurio.datamodels.Library;
-import io.apicurio.datamodels.asyncapi.models.AaiSecurityScheme;
-import io.apicurio.datamodels.asyncapi.v2.models.Aai20Document;
-import io.apicurio.datamodels.core.models.Extension;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -131,6 +127,7 @@ import org.wso2.carbon.apimgt.rest.api.publisher.v1.dto.MockResponsePayloadInfoD
 import org.wso2.carbon.apimgt.rest.api.publisher.v1.dto.MockResponsePayloadListDTO;
 import org.wso2.carbon.apimgt.rest.api.publisher.v1.dto.OpenAPIDefinitionValidationResponseDTO;
 import org.wso2.carbon.apimgt.rest.api.publisher.v1.dto.OpenAPIDefinitionValidationResponseInfoDTO;
+import org.wso2.carbon.apimgt.rest.api.publisher.v1.dto.OperationPolicyDTO;
 import org.wso2.carbon.apimgt.rest.api.publisher.v1.dto.OrganizationPoliciesDTO;
 import org.wso2.carbon.apimgt.rest.api.publisher.v1.dto.PaginationDTO;
 import org.wso2.carbon.apimgt.rest.api.publisher.v1.dto.ProductAPIDTO;
@@ -148,8 +145,11 @@ import org.wso2.carbon.apimgt.rest.api.publisher.v1.dto.WSDLValidationResponseWs
 import org.wso2.carbon.apimgt.rest.api.publisher.v1.dto.WSDLValidationResponseWsdlInfoEndpointsDTO;
 import org.wso2.carbon.apimgt.rest.api.publisher.v1.dto.WebsubSubscriptionConfigurationDTO;
 import org.wso2.carbon.apimgt.rest.api.publisher.v1.dto.WorkflowResponseDTO;
-import org.wso2.carbon.apimgt.spec.parser.definitions.AsyncApiParser;
+import org.wso2.carbon.apimgt.spec.parser.definitions.AbstractAsyncApiParser;
+import org.wso2.carbon.apimgt.spec.parser.definitions.AsyncApiParserUtil;
 import org.wso2.carbon.apimgt.spec.parser.definitions.OASParserUtil;
+import org.wso2.carbon.apimgt.spec.parser.definitions.asyncapi.AsyncApiParseOptions;
+import org.wso2.carbon.apimgt.spec.parser.definitions.asyncapi.AsyncApiParserFactory;
 import org.wso2.carbon.core.util.CryptoException;
 import org.wso2.carbon.core.util.CryptoUtil;
 import org.wso2.carbon.user.api.UserStoreException;
@@ -321,6 +321,10 @@ public class APIMappingUtil {
             List<OperationPolicy> policyList = OperationPolicyMappingUtil.fromDTOToAPIOperationPoliciesList(
                     dto.getApiPolicies());
             model.setApiPolicies(policyList);
+        }
+        // API-level Policy Hub policies (sibling to apiPolicies; Option B)
+        if (dto.getApiHubPolicies() != null && !dto.getApiHubPolicies().isEmpty()) {
+            model.setHubPolicies(OperationPolicyMappingUtil.fromDTOListToOperationPolicyList(dto.getApiHubPolicies()));
         }
 
         // wsUriMapping
@@ -587,8 +591,6 @@ public class APIMappingUtil {
         String providerEmailDomainReplaced = APIUtil.replaceEmailDomain(provider);
         APIIdentifier apiId = new APIIdentifier(providerEmailDomainReplaced, dto.getName(), dto.getVersion());
         API model = new API(apiId);
-        model.setUuid(dto.getId());
-
         String context = dto.getContext();
         final String originalContext = context;
 
@@ -1704,8 +1706,8 @@ public class APIMappingUtil {
                 JSONParser parser = new JSONParser();
                 JSONObject endpointConfigJson = (JSONObject) parser.parse(endpointConfig);
                 // AWS Lambda: set secret key based on preserveCredentials
-                if (APIConstants.ENDPOINT_TYPE_AWSLAMBDA
-                        .equals(endpointConfigJson.get(APIConstants.API_ENDPOINT_CONFIG_PROTOCOL_TYPE))) {
+                if (APIConstants.ENDPOINT_TYPE_AWSLAMBDA.equalsIgnoreCase(
+                        (String) endpointConfigJson.get(APIConstants.API_ENDPOINT_CONFIG_PROTOCOL_TYPE))) {
                     handleAWSCredentials(endpointConfigJson, preserveCredentials);
                 }
                 CryptoUtil cryptoUtil = CryptoUtil.getDefaultCryptoUtil();
@@ -1718,9 +1720,14 @@ public class APIMappingUtil {
                                 .get(APIConstants.OAuthConstants.ENDPOINT_SECURITY_TYPE);
                         if (productionEndpointSecurity
                                 .get(APIConstants.OAuthConstants.OAUTH_CUSTOM_PARAMETERS) != null) {
-                            String customParametersString = (String) productionEndpointSecurity
+                            Object customParametersObject = productionEndpointSecurity
                                     .get(APIConstants.OAuthConstants.OAUTH_CUSTOM_PARAMETERS);
-                            JSONObject customParameters = (JSONObject) parser.parse(customParametersString);
+                            JSONObject customParameters;
+                            if (customParametersObject instanceof JSONObject) {
+                                customParameters = (JSONObject) customParametersObject;
+                            } else {
+                                customParameters = (JSONObject) parser.parse(customParametersObject.toString());
+                            }
                             decryptCustomOauthParameters(customParameters, cryptoUtil);
                             productionEndpointSecurity.put(
                                     APIConstants.OAuthConstants.OAUTH_CUSTOM_PARAMETERS, customParameters);
@@ -1762,9 +1769,14 @@ public class APIMappingUtil {
                                 .get(APIConstants.OAuthConstants.ENDPOINT_SECURITY_TYPE);
                         if (sandboxEndpointSecurity
                                 .get(APIConstants.OAuthConstants.OAUTH_CUSTOM_PARAMETERS) != null) {
-                            String customParametersString = (String) sandboxEndpointSecurity
+                            Object customParametersObject = sandboxEndpointSecurity
                                     .get(APIConstants.OAuthConstants.OAUTH_CUSTOM_PARAMETERS);
-                            JSONObject customParameters = (JSONObject) parser.parse(customParametersString);
+                            JSONObject customParameters;
+                            if (customParametersObject instanceof JSONObject) {
+                                customParameters = (JSONObject) customParametersObject;
+                            } else {
+                                customParameters = (JSONObject) parser.parse(customParametersObject.toString());
+                            }
                             decryptCustomOauthParameters(customParameters, cryptoUtil);
                             sandboxEndpointSecurity.put(
                                     APIConstants.OAuthConstants.OAUTH_CUSTOM_PARAMETERS, customParameters);
@@ -1859,6 +1871,15 @@ public class APIMappingUtil {
         if (model.getApiPolicies() != null) {
             dto.setApiPolicies(OperationPolicyMappingUtil.fromOperationPolicyListToDTO(model.getApiPolicies(),
                     model.getUuid(), preserveCredentials));
+        }
+        // API-level Policy Hub policies (sibling; Option B)
+        if (model.getHubPolicies() != null && !model.getHubPolicies().isEmpty()) {
+            List<OperationPolicyDTO> hubDtoList = new ArrayList<>();
+            for (OperationPolicy p : model.getHubPolicies()) {
+                hubDtoList.add(OperationPolicyMappingUtil.fromOperationPolicyToDTO(p, model.getUuid(),
+                        preserveCredentials));
+            }
+            dto.setApiHubPolicies(hubDtoList);
         }
         String subscriptionAvailability = model.getSubscriptionAvailability();
         if (subscriptionAvailability != null) {
@@ -2204,8 +2225,8 @@ public class APIMappingUtil {
                 JSONParser parser = new JSONParser();
                 JSONObject endpointConfigJson = (JSONObject) parser.parse(endpointConfig);
                 // AWS Lambda: set secret key based on preserveCredentials
-                if (APIConstants.ENDPOINT_TYPE_AWSLAMBDA
-                        .equals(endpointConfigJson.get(APIConstants.API_ENDPOINT_CONFIG_PROTOCOL_TYPE))) {
+                if (APIConstants.ENDPOINT_TYPE_AWSLAMBDA.equalsIgnoreCase(
+                        (String) endpointConfigJson.get(APIConstants.API_ENDPOINT_CONFIG_PROTOCOL_TYPE))) {
                     handleAWSCredentials(endpointConfigJson, preserveCredentials);
                 }
                 CryptoUtil cryptoUtil = CryptoUtil.getDefaultCryptoUtil();
@@ -2498,36 +2519,27 @@ public class APIMappingUtil {
         return dto;
     }
 
-    private static List<ScopeDTO> getScopesFromAsyncAPI(String asyncAPIDefinition) {
-        Aai20Document document = (Aai20Document) Library.readDocumentFromJSONString(asyncAPIDefinition);
+    private static List<ScopeDTO> getScopesFromAsyncAPI(String asyncAPIDefinition) throws APIManagementException {
+
+        String asyncApiVersion = AsyncApiParserUtil.getAsyncApiVersion(asyncAPIDefinition);
+        AbstractAsyncApiParser asyncApiParser;
+        AsyncApiParseOptions options =  PublisherCommonUtils.getParserOptionsFromConfig();
+        try {
+            asyncApiParser = AsyncApiParserFactory.getAsyncApiParser(asyncApiVersion, options);
+        } catch (IllegalArgumentException | UnsupportedOperationException e) {
+            throw new APIManagementException("Unsupported AsyncAPI version: " + asyncApiVersion, e);
+        }
+        Set<Scope> scopes = asyncApiParser.getScopes(asyncAPIDefinition);
+        if (scopes == null || scopes.isEmpty()) {
+            return Collections.emptyList();
+        }
         List<ScopeDTO> scopeDTOS = new ArrayList<>();
-
-        if (document.components == null
-                || document.components.securitySchemes == null
-                || document.components.securitySchemes.get("oauth2") == null) {
-            return scopeDTOS;
-        }
-        AaiSecurityScheme securityScheme = document.components.securitySchemes.get("oauth2");
-
-        if (securityScheme.flows == null
-                || securityScheme.flows.implicit == null
-                || securityScheme.flows.implicit.scopes == null) {
-            return scopeDTOS;
-        }
-        Map<String, String> scopes = securityScheme.flows.implicit.scopes;
-        Map<String, String> scopeBindings = new HashMap<>();
-        Extension xScopesBindings = securityScheme.flows.implicit.getExtension("x-scopes-bindings");
-        if (xScopesBindings != null) {
-            scopeBindings = (Map<String, String>) xScopesBindings.value;
-        }
-
-        for (Map.Entry<String, String> aScope : scopes.entrySet()) {
+        for (Scope aScope : scopes) {
             ScopeDTO scopeDTO = new ScopeDTO();
             scopeDTO.setName(aScope.getKey());
-            scopeDTO.setDisplayName(aScope.getKey());
-            scopeDTO.setDescription(aScope.getValue());
-
-            String roles = scopeBindings.get(aScope.getKey());
+            scopeDTO.setDisplayName(aScope.getName());
+            scopeDTO.setDescription(aScope.getDescription());
+            String roles = aScope.getRoles();
             if (roles == null || roles.isEmpty()) {
                 scopeDTO.setBindings(Collections.emptyList());
             } else {
@@ -2965,7 +2977,8 @@ public class APIMappingUtil {
                 isHttpVerbDefined = true;
                 String authType = mapOASToInternalAuthType(operation.getAuthType());
                 setCommonTemplateFields(template, uriTempVal, httpVerb, authType,
-                        operation.getThrottlingPolicy(), operation.getOperationPolicies());
+                        operation.getThrottlingPolicy(), operation.getOperationPolicies(),
+                        operation.getOperationHubPolicies());
 
                 uriTemplates.add(template);
             } else {
@@ -3057,7 +3070,7 @@ public class APIMappingUtil {
 
             String authType = mapOASToInternalAuthType(operation.getAuthType());
             setCommonTemplateFields(template, uriTempVal, verb, authType,
-                    operation.getThrottlingPolicy(), operation.getOperationPolicies());
+                    operation.getThrottlingPolicy(), operation.getOperationPolicies(), null);
 
             template.setSchemaDefinition(operation.getSchemaDefinition());
             template.setDescription(operation.getDescription());
@@ -3111,11 +3124,13 @@ public class APIMappingUtil {
      * @param httpVerb            the HTTP verb (method)
      * @param authType            the authentication type
      * @param throttlingPolicy    the throttling policy
-     * @param operationPolicies   the operation policies DTO
+     * @param operationPolicies   the operation policies DTO (request/response/fault)
+     * @param operationHubPolicies Policy Hub policies at resource level (sibling; may be null)
      */
     private static void setCommonTemplateFields(URITemplate template, String uriTemplate, String httpVerb,
                                                 String authType, String throttlingPolicy,
-                                                APIOperationPoliciesDTO operationPolicies) {
+                                                APIOperationPoliciesDTO operationPolicies,
+                                                List<OperationPolicyDTO> operationHubPolicies) {
 
         template.setThrottlingTier(throttlingPolicy);
         template.setThrottlingTiers(throttlingPolicy);
@@ -3128,6 +3143,9 @@ public class APIMappingUtil {
         if (operationPolicies != null) {
             template.setOperationPolicies(
                     OperationPolicyMappingUtil.fromDTOToAPIOperationPoliciesList(operationPolicies));
+        }
+        if (operationHubPolicies != null && !operationHubPolicies.isEmpty()) {
+            template.setHubPolicies(OperationPolicyMappingUtil.fromDTOListToOperationPolicyList(operationHubPolicies));
         }
     }
 
@@ -3434,13 +3452,13 @@ public class APIMappingUtil {
                 if (!apiDefinitionMap.isEmpty()) {
                     for (Map.Entry<String, APIDefinition> apiDefinitionEntry : apiDefinitionMap.entrySet()) {
                         APIDefinition apiParser = apiDefinitionEntry.getValue();
-                        String gatewayVendor = apiParser.getVendorFromExtension(model.getContent());
+                        String gatewayVendor = apiParser.getVendorFromExtensionWithError(model.getContent());
                         if (gatewayVendor != null) {
                             infoDTO.setGatewayVendor(gatewayVendor);
                             break;
                         }
                     }
-                    infoDTO.asyncTransportProtocols(AsyncApiParser.getTransportProtocolsForAsyncAPI
+                    infoDTO.asyncTransportProtocols(AsyncApiParserUtil.getTransportProtocolsForAsyncAPI
                             (model.getContent()));
                 }
                 // Set default value
@@ -3650,8 +3668,9 @@ public class APIMappingUtil {
 
         for (APIOperationsDTO operationsDTO : apiOperationsDTO) {
             String key = operationsDTO.getTarget() + ":" + operationsDTO.getVerb();
-            if (uriTemplateMap.get(key) != null) {
-                List<OperationPolicy> operationPolicies = uriTemplateMap.get(key).getOperationPolicies();
+            URITemplate uriTemplate = uriTemplateMap.get(key);
+            if (uriTemplate != null) {
+                List<OperationPolicy> operationPolicies = uriTemplate.getOperationPolicies();
                 if (operationPolicies != null && !operationPolicies.isEmpty()) {
                     if (log.isDebugEnabled()) {
                         log.debug("Found " + operationPolicies.size() + " operation policies for " + key);
@@ -3659,6 +3678,14 @@ public class APIMappingUtil {
                     operationsDTO.setOperationPolicies(
                             OperationPolicyMappingUtil.fromOperationPolicyListToDTO(operationPolicies, api.getUuid(),
                                     preserveCredentials));
+                }
+                if (uriTemplate.getHubPolicies() != null && !uriTemplate.getHubPolicies().isEmpty()) {
+                    List<OperationPolicyDTO> hubDtoList = new ArrayList<>();
+                    for (OperationPolicy p : uriTemplate.getHubPolicies()) {
+                        hubDtoList.add(OperationPolicyMappingUtil.fromOperationPolicyToDTO(p, api.getUuid(),
+                                preserveCredentials));
+                    }
+                    operationsDTO.setOperationHubPolicies(hubDtoList);
                 }
             }
         }
@@ -3726,6 +3753,13 @@ public class APIMappingUtil {
         dto.setScopes(extractScopes(uriTemplate));
         dto.setOperationPolicies(OperationPolicyMappingUtil
                 .fromOperationPolicyListToDTO(uriTemplate.getOperationPolicies(), apiUuid, preserveCredentials));
+        if (uriTemplate.getHubPolicies() != null && !uriTemplate.getHubPolicies().isEmpty()) {
+            List<OperationPolicyDTO> hubDtoList = new ArrayList<>();
+            for (OperationPolicy p : uriTemplate.getHubPolicies()) {
+                hubDtoList.add(OperationPolicyMappingUtil.fromOperationPolicyToDTO(p, apiUuid, preserveCredentials));
+            }
+            dto.setOperationHubPolicies(hubDtoList);
+        }
         dto.setThrottlingPolicy(uriTemplate.getThrottlingTier());
         List<String> usedProductIds = extractUsedProductIds(uriTemplate);
         if (!usedProductIds.isEmpty()) {
@@ -4357,6 +4391,11 @@ public class APIMappingUtil {
                 template.setUriTemplate(resourceItem.getTarget());
                 template.setOperationPolicies(OperationPolicyMappingUtil
                         .fromDTOToAPIOperationPoliciesList(resourceItem.getOperationPolicies()));
+                if (resourceItem.getOperationHubPolicies() != null
+                        && !resourceItem.getOperationHubPolicies().isEmpty()) {
+                    template.setHubPolicies(OperationPolicyMappingUtil.fromDTOListToOperationPolicyList(
+                            resourceItem.getOperationHubPolicies()));
+                }
 
                 APIProductResource resource = new APIProductResource();
                 resource.setApiId(res.getApiId());

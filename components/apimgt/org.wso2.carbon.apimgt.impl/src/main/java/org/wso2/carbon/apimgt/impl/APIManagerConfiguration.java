@@ -69,6 +69,7 @@ import org.wso2.carbon.apimgt.impl.dto.ai.ApiChatConfigurationDTO;
 import org.wso2.carbon.apimgt.impl.dto.ai.DesignAssistantConfigurationDTO;
 import org.wso2.carbon.apimgt.api.dto.EmbeddingProviderConfigurationDTO;
 import org.wso2.carbon.apimgt.api.dto.GuardrailProviderConfigurationDTO;
+import org.wso2.carbon.apimgt.api.dto.LLMProviderConfigurationDTO;
 import org.wso2.carbon.apimgt.impl.dto.ai.MarketplaceAssistantConfigurationDTO;
 import org.wso2.carbon.apimgt.common.gateway.dto.ClaimMappingDto;
 import org.wso2.carbon.apimgt.common.gateway.dto.JWKSConfigurationDTO;
@@ -81,6 +82,7 @@ import org.wso2.securevault.SecretResolver;
 import org.wso2.securevault.SecretResolverFactory;
 import org.wso2.securevault.commons.MiscellaneousUtil;
 import org.wso2.carbon.apimgt.impl.dto.GatewayNotificationConfiguration;
+import org.wso2.carbon.apimgt.impl.dto.PlatformGatewayConnectConfig;
 
 import java.io.File;
 import java.io.IOException;
@@ -149,6 +151,8 @@ public class APIManagerConfiguration {
     private final Map<String, TenantSharingConfigurationDTO> tenantSharingConfigurations = new HashMap<>();
     private final EmbeddingProviderConfigurationDTO embeddingProviderConfigurationDTO =
             new EmbeddingProviderConfigurationDTO();
+    private final LLMProviderConfigurationDTO llmProviderConfigurationDTO =
+            new LLMProviderConfigurationDTO();
     private final VectorDBProviderConfigurationDTO vectorDBProviderConfigurationDTO =
             new VectorDBProviderConfigurationDTO();
     private static Properties realtimeNotifierProperties;
@@ -260,6 +264,7 @@ public class APIManagerConfiguration {
 
     private JSONArray customProperties = new JSONArray();
     private GatewayNotificationConfiguration gatewayNotificationConfiguration = new GatewayNotificationConfiguration();
+    private PlatformGatewayConnectConfig platformGatewayConnectConfig = new PlatformGatewayConnectConfig();
 
     /**
      * Returns the configuration of the Identity Provider.
@@ -664,10 +669,47 @@ public class APIManagerConfiguration {
                 solaceConfig.setEnabled(true);
                 solaceConfig.setSolaceApimApiEndpoint(solaceApimApiEndpoint.getText());
                 solaceConfig.setSolaceToken(solaceToken.getText());
+            } else if (APIConstants.MEDIATION_CONFIG.equals(localName)) {
+                OMElement enableSecureXMLProcessingElement = element.getFirstChildWithName(
+                        new QName(APIConstants.ENABLE_SECURE_XML_PROCESSING));
+                if (enableSecureXMLProcessingElement != null) {
+                    String key = getKey(nameStack) + "." + APIConstants.ENABLE_SECURE_XML_PROCESSING;
+                    addToConfiguration(key, enableSecureXMLProcessingElement.getText());
+                }
             } else if (elementHasText(element)) {
                 String key = getKey(nameStack);
                 String value = MiscellaneousUtil.resolve(element, secretResolver);
-                addToConfiguration(key, APIUtil.replaceSystemProperty(value));
+                if (org.wso2.carbon.apimgt.api.APIConstants.API_PUBLISHER_IMPORT_OAS_FILE_SIZE_LIMIT.equals(key)) {
+                    String maxFileSize = StringUtils.isNumeric(value) ?
+                            value :
+                            org.wso2.carbon.apimgt.api.APIConstants.API_PUBLISHER_IMPORT_OAS_FILE_SIZE_LIMIT_DEFAULT_MB;
+                    addToConfiguration(key, APIUtil.replaceSystemProperty(maxFileSize));
+                } else if (org.wso2.carbon.apimgt.api.APIConstants.API_PUBLISHER_IMPORT_ASYNC_FILE_SIZE_LIMIT.equals(
+                        key)) {
+                    String maxFileSize = StringUtils.isNumeric(value) ?
+                            value :
+                            org.wso2.carbon.apimgt.api.APIConstants.API_PUBLISHER_IMPORT_ASYNC_FILE_SIZE_LIMIT_DEFAULT_MB;
+                    addToConfiguration(key, APIUtil.replaceSystemProperty(maxFileSize));
+                } else if (org.wso2.carbon.apimgt.api.APIConstants.API_PUBLISHER_IMPORT_WSDL_FILE_SIZE_LIMIT.equals(
+                        key)) {
+                    String maxFileSize = StringUtils.isNumeric(value) ?
+                            value :
+                            org.wso2.carbon.apimgt.api.APIConstants.API_PUBLISHER_IMPORT_WSDL_FILE_SIZE_LIMIT_DEFAULT_MB;
+                    addToConfiguration(key, APIUtil.replaceSystemProperty(maxFileSize));
+                } else if (org.wso2.carbon.apimgt.api.APIConstants.API_PUBLISHER_IMPORT_GRAPHQL_FILE_SIZE_LIMIT.equals(key)) {
+                    String maxFileSize = StringUtils.isNumeric(value) ?
+                            value :
+                            org.wso2.carbon.apimgt.api.APIConstants.API_PUBLISHER_IMPORT_GRAPHQL_FILE_SIZE_LIMIT_DEFAULT_MB;
+                    addToConfiguration(key, APIUtil.replaceSystemProperty(maxFileSize));
+                } else if (org.wso2.carbon.apimgt.api.APIConstants.API_PUBLISHER_IMPORT_MCP_FILE_SIZE_LIMIT.equals(
+                        key)) {
+                    String maxFileSize = StringUtils.isNumeric(value) ?
+                            value :
+                            org.wso2.carbon.apimgt.api.APIConstants.API_PUBLISHER_IMPORT_MCP_FILE_SIZE_LIMIT_DEFAULT_MB;
+                    addToConfiguration(key, APIUtil.replaceSystemProperty(maxFileSize));
+                } else {
+                    addToConfiguration(key, APIUtil.replaceSystemProperty(value));
+                }
             } else if ("Environments".equals(localName)) {
                 Iterator environmentIterator = element.getChildrenWithLocalName("Environment");
                 apiGatewayEnvironments = new LinkedHashMap<String, Environment>();
@@ -903,21 +945,15 @@ public class APIManagerConfiguration {
                     OMElement aiChildElement = (OMElement) aiChildren.next();
 
                     if (APIConstants.AI.GUARDRAIL_PROVIDERS.equals(aiChildElement.getLocalName())) {
-                        // Iterate through each <EmbeddingProvider>
                         for (Iterator<?> providers = aiChildElement.getChildElements(); providers.hasNext(); ) {
                             OMElement providerElement = (OMElement) providers.next();
-
                             if (APIConstants.AI.GUARDRAIL_PROVIDER.equals(providerElement.getLocalName())) {
-                                // Get the provider type
                                 String type = providerElement.getAttributeValue(
                                         new QName(APIConstants.AI.GUARDRAIL_PROVIDER_TYPE));
                                 if (type == null || type.isEmpty()) {
-                                    continue; // skip if no type defined
+                                    continue;
                                 }
-
                                 Map<String, String> propertiesMap = new HashMap<>();
-
-                                // Iterate through each <Property>
                                 for (Iterator<?> props = providerElement.getChildElements(); props.hasNext(); ) {
                                     OMElement prop = (OMElement) props.next();
 
@@ -932,7 +968,6 @@ public class APIManagerConfiguration {
                                     }
                                 }
 
-                                // Add to the main map
                                 GuardrailProviderConfigurationDTO guardrailProviderConfigurationDTO =
                                         new GuardrailProviderConfigurationDTO();
                                 guardrailProviderConfigurationDTO.setType(type);
@@ -941,18 +976,13 @@ public class APIManagerConfiguration {
                             }
                         }
                     }
-
                     if (APIConstants.AI.EMBEDDING_PROVIDER.equals(aiChildElement.getLocalName())) {
-                        // Get the provider type
                         String type = aiChildElement.getAttributeValue(
                                 new QName(APIConstants.AI.EMBEDDING_PROVIDER_TYPE));
                         if (type == null || type.isEmpty()) {
-                            continue; // skip if no type defined
+                            continue;
                         }
-
                         Map<String, String> propertiesMap = new HashMap<>();
-
-                        // Iterate through each <Property>
                         for (Iterator<?> props = aiChildElement.getChildElements(); props.hasNext(); ) {
                             OMElement prop = (OMElement) props.next();
 
@@ -970,18 +1000,37 @@ public class APIManagerConfiguration {
                         this.embeddingProviderConfigurationDTO.setType(type);
                         this.embeddingProviderConfigurationDTO.setProperties(propertiesMap);
                     }
+                    if (APIConstants.AI.LLM_PROVIDER.equals(aiChildElement.getLocalName())) {
+                        String type = aiChildElement.getAttributeValue(
+                                new QName(APIConstants.AI.LLM_PROVIDER_TYPE));
+                        if (type == null || type.isEmpty()) {
+                            continue;
+                        }
+                        Map<String, String> propertiesMap = new HashMap<>();
+                        for (Iterator<?> props = aiChildElement.getChildElements(); props.hasNext(); ) {
+                            OMElement prop = (OMElement) props.next();
 
+                            if (APIConstants.AI.LLM_PROVIDER_PROPERTY.equals(prop.getLocalName())) {
+                                String key = prop.getAttributeValue(
+                                        new QName(APIConstants.AI.LLM_PROVIDER_PROPERTY_KEY));
+                                String value = MiscellaneousUtil.resolve(prop, secretResolver);
+
+                                if (key != null && !key.isEmpty()) {
+                                    propertiesMap.put(key, value);
+                                }
+                            }
+                        }
+
+                        this.llmProviderConfigurationDTO.setType(type);
+                        this.llmProviderConfigurationDTO.setProperties(propertiesMap);
+                    }
                     if (APIConstants.AI.VECTOR_DB_PROVIDER.equals(aiChildElement.getLocalName())) {
-                        // Get the vector DB type
                         String type = aiChildElement.getAttributeValue(
                                 new QName(APIConstants.AI.VECTOR_DB_PROVIDER_TYPE));
                         if (type == null || type.isEmpty()) {
-                            continue; // skip if no type defined
+                            continue;
                         }
-
                         Map<String, String> propertiesMap = new HashMap<>();
-
-                        // Iterate through each <Property>
                         for (Iterator<?> props = aiChildElement.getChildElements(); props.hasNext(); ) {
                             OMElement prop = (OMElement) props.next();
 
@@ -1450,6 +1499,11 @@ public class APIManagerConfiguration {
     public EmbeddingProviderConfigurationDTO getEmbeddingProvider() {
 
         return embeddingProviderConfigurationDTO;
+    }
+
+    public LLMProviderConfigurationDTO getLLMProvider() {
+
+        return llmProviderConfigurationDTO;
     }
 
     public VectorDBProviderConfigurationDTO getVectorDBProvider() {
@@ -3174,6 +3228,18 @@ public class APIManagerConfiguration {
         this.hashingAlgorithm = hashingAlgorithm;
     }
 
+    /**
+     * Returns whether secure XML processing is enabled for policies.
+     *
+     * @return true if secure XML processing is enabled, false otherwise.
+     */
+    public boolean isEnableSecureXMLProcessing() {
+
+        String value = getFirstProperty(APIConstants.MEDIATION_CONFIG + "."
+                + APIConstants.ENABLE_SECURE_XML_PROCESSING);
+        return Boolean.parseBoolean(value);
+    }
+
     public void setApiChatConfiguration(OMElement omElement){
         OMElement apiChatEnableElement =
                 omElement.getFirstChildWithName(new QName(APIConstants.AI.ENABLED));
@@ -3425,6 +3491,91 @@ public class APIManagerConfiguration {
                         Integer.parseInt(batchProcessorQueueSizeElem.getText()));
             }
         }
+        org.apache.axiom.om.OMElement apiKeyNotification = omElement.getFirstChildWithName(
+                new QName(APIConstants.GatewayNotification.API_KEY_NOTIFICATION));
+        if (apiKeyNotification != null) {
+            org.apache.axiom.om.OMElement queueSizeElem = apiKeyNotification.getFirstChildWithName(
+                    new QName(APIConstants.GatewayNotification.QUEUE_SIZE));
+            if (queueSizeElem != null && StringUtils.isNotBlank(queueSizeElem.getText())) {
+                if (Integer.parseInt(queueSizeElem.getText()) > 0) {
+                    gatewayNotificationConfiguration.getApiKeyConfiguration().setQueueSize(
+                            Integer.parseInt(queueSizeElem.getText()));
+                }
+            }
+
+            org.apache.axiom.om.OMElement batchSizeElem = apiKeyNotification.getFirstChildWithName(
+                    new QName(APIConstants.GatewayNotification.BATCH_SIZE));
+            if (batchSizeElem != null && StringUtils.isNotBlank(batchSizeElem.getText())) {
+                if (Integer.parseInt(batchSizeElem.getText()) > 0) {
+                    gatewayNotificationConfiguration.getApiKeyConfiguration().setBatchSize(
+                            Integer.parseInt(batchSizeElem.getText()));
+                }
+            }
+            org.apache.axiom.om.OMElement batchIntervalElem = apiKeyNotification.getFirstChildWithName(
+                    new QName(APIConstants.GatewayNotification.BATCH_INTERVAL_MILLIS));
+            if (batchIntervalElem != null && StringUtils.isNotBlank(batchIntervalElem.getText()) &&
+                    Long.parseLong(batchIntervalElem.getText()) > 0) {
+                gatewayNotificationConfiguration.getApiKeyConfiguration().setBatchIntervalMillis(
+                        Long.parseLong(batchIntervalElem.getText()));
+            }
+            org.apache.axiom.om.OMElement maxRetryCountElem = apiKeyNotification.getFirstChildWithName(
+                    new QName(APIConstants.GatewayNotification.MAX_RETRY_COUNT));
+            if (maxRetryCountElem != null && StringUtils.isNotBlank(maxRetryCountElem.getText()) &&
+                    Integer.parseInt(maxRetryCountElem.getText()) >= 0) {
+                gatewayNotificationConfiguration.getApiKeyConfiguration().setMaxRetryCount(
+                        Integer.parseInt(maxRetryCountElem.getText()));
+            }
+            org.apache.axiom.om.OMElement retryDurationElem = apiKeyNotification.getFirstChildWithName(
+                    new QName(APIConstants.GatewayNotification.RETRY_DURATION));
+            if (retryDurationElem != null && StringUtils.isNotBlank(retryDurationElem.getText()) &&
+                    Long.parseLong(retryDurationElem.getText()) > 0) {
+                gatewayNotificationConfiguration.getApiKeyConfiguration().setRetryDuration(
+                        Long.parseLong(retryDurationElem.getText()));
+            }
+            org.apache.axiom.om.OMElement retryProgressionFactorElem = apiKeyNotification.getFirstChildWithName(
+                    new QName(APIConstants.GatewayNotification.RETRY_PROGRESSION_FACTOR));
+            if (retryProgressionFactorElem != null && StringUtils.isNotBlank(retryProgressionFactorElem.getText()) &&
+                    Double.parseDouble(retryProgressionFactorElem.getText()) > 0) {
+                gatewayNotificationConfiguration.getApiKeyConfiguration().setRetryProgressionFactor(
+                        Double.parseDouble(retryProgressionFactorElem.getText()));
+            }
+            org.apache.axiom.om.OMElement batchProcessorMinThreadElem = apiKeyNotification.getFirstChildWithName(
+                    new QName(APIConstants.GatewayNotification.BATCH_PROCESSOR_MIN_THREAD));
+            if (batchProcessorMinThreadElem != null && StringUtils.isNotBlank(batchProcessorMinThreadElem.getText()) &&
+                    Integer.parseInt(batchProcessorMinThreadElem.getText()) > 0) {
+                gatewayNotificationConfiguration.getApiKeyConfiguration().setBatchProcessorMinThread(
+                        Integer.parseInt(batchProcessorMinThreadElem.getText()));
+            }
+            org.apache.axiom.om.OMElement batchProcessorMaxThreadElem = apiKeyNotification.getFirstChildWithName(
+                    new QName(APIConstants.GatewayNotification.BATCH_PROCESSOR_MAX_THREAD));
+            if (batchProcessorMaxThreadElem != null && StringUtils.isNotBlank(batchProcessorMaxThreadElem.getText()) &&
+                    Integer.parseInt(batchProcessorMaxThreadElem.getText()) > 0) {
+                gatewayNotificationConfiguration.getApiKeyConfiguration().setBatchProcessorMaxThread(
+                        Integer.parseInt(batchProcessorMaxThreadElem.getText()));
+            }
+            if (gatewayNotificationConfiguration.getApiKeyConfiguration().getBatchProcessorMaxThread() <
+                    gatewayNotificationConfiguration.getApiKeyConfiguration().getBatchProcessorMinThread()) {
+                log.debug(
+                        "Batch Processor Max Thread value is less than Min Thread value. Hence setting Max Thread" +
+                                " value to Min Thread value.");
+                gatewayNotificationConfiguration.getApiKeyConfiguration().setBatchProcessorMaxThread(
+                        gatewayNotificationConfiguration.getApiKeyConfiguration().getBatchProcessorMinThread());
+            }
+            org.apache.axiom.om.OMElement batchProcessorKeepAliveElem = apiKeyNotification.getFirstChildWithName(
+                    new QName(APIConstants.GatewayNotification.BATCH_PROCESSOR_KEEP_ALIVE));
+            if (batchProcessorKeepAliveElem != null && StringUtils.isNotBlank(batchProcessorKeepAliveElem.getText()) &&
+                    Long.parseLong(batchProcessorKeepAliveElem.getText()) > 0) {
+                gatewayNotificationConfiguration.getApiKeyConfiguration().setBatchProcessorKeepAlive(
+                        Long.parseLong(batchProcessorKeepAliveElem.getText()));
+            }
+            org.apache.axiom.om.OMElement batchProcessorQueueSizeElem = apiKeyNotification.getFirstChildWithName(
+                    new QName(APIConstants.GatewayNotification.BATCH_PROCESSOR_QUEUE_SIZE));
+            if (batchProcessorQueueSizeElem != null && StringUtils.isNotBlank(batchProcessorQueueSizeElem.getText()) &&
+                    Integer.parseInt(batchProcessorQueueSizeElem.getText()) > 0) {
+                gatewayNotificationConfiguration.getApiKeyConfiguration().setBatchProcessorQueueSize(
+                        Integer.parseInt(batchProcessorQueueSizeElem.getText()));
+            }
+        }
 
         org.apache.axiom.om.OMElement registrationElem = omElement.getFirstChildWithName(
                 new QName(APIConstants.GatewayNotification.REGISTRATION));
@@ -3465,10 +3616,40 @@ public class APIManagerConfiguration {
                         Integer.parseInt(retentionElem.getText()));
             }
         }
+
+        // Platform Gateway version metadata for UI quick-start (separate element under gateway notification).
+        OMElement pgConnectElem = omElement.getFirstChildWithName(
+                new QName(APIConstants.GatewayNotification.PLATFORM_GATEWAY_CONNECT_CONFIGURATION));
+        if (pgConnectElem != null) {
+            List<String> platformGatewayVersions = new ArrayList<>();
+            OMElement platformGatewayVersionsEl = pgConnectElem.getFirstChildWithName(
+                    new QName(APIConstants.GatewayNotification.PLATFORM_GATEWAY_VERSIONS));
+            if (platformGatewayVersionsEl != null) {
+                Iterator<?> versionIterator = platformGatewayVersionsEl.getChildrenWithName(
+                        new QName(APIConstants.GatewayNotification.VERSION));
+                while (versionIterator != null && versionIterator.hasNext()) {
+                    OMElement versionElement = (OMElement) versionIterator.next();
+                    if (versionElement != null && versionElement.getText() != null
+                            && !versionElement.getText().trim().isEmpty()) {
+                        platformGatewayVersions.add(versionElement.getText().trim());
+                    }
+                }
+            }
+            if (!platformGatewayVersions.isEmpty()) {
+                platformGatewayConnectConfig.setPlatformGatewayVersions(platformGatewayVersions);
+            }
+        }
     }
 
     public GatewayNotificationConfiguration getGatewayNotificationConfiguration() {
         return gatewayNotificationConfiguration;
+    }
+
+    /**
+     * API Platform Gateway metadata config (e.g. supported versions for UI).
+     */
+    public PlatformGatewayConnectConfig getPlatformGatewayConnectConfig() {
+        return platformGatewayConnectConfig;
     }
 
     /**
