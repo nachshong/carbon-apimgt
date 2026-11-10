@@ -20,7 +20,7 @@
     <parent>
         <groupId>org.wso2.carbon.apimgt</groupId>
         <artifactId>apimgt-feature</artifactId>
-        <version>9.32.147</version>
+        <version>9.33.122</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
@@ -157,6 +157,14 @@
                                     <outputDirectory>${basedir}/src/main/resources/</outputDirectory>
                                     <destFileName>internal#data#v1.war</destFileName>
                                 </artifactItem>
+                                <artifactItem>
+                                    <groupId>org.wso2.carbon.apimgt</groupId>
+                                    <artifactId>org.wso2.carbon.apimgt.internal.service</artifactId>
+                                    <overWrite>true</overWrite>
+                                    <type>war</type>
+                                    <outputDirectory>${basedir}/src/main/resources/</outputDirectory>
+                                    <destFileName>internal#gateway.war</destFileName>
+                                </artifactItem>
                             </artifactItems>
                             <outputDirectory>${project.build.directory}/external/libs</outputDirectory>
                         </configuration>
@@ -219,7 +227,7 @@
                                 <bundleDef>org.wso2.carbon.apimgt:org.wso2.carbon.apimgt.notification:${carbon.apimgt.version}</bundleDef>
                                 <bundleDef>jakarta.validation:jakarta.validation-api</bundleDef>
                                 <bundleDef>org.wso2.orbit.io.swagger:swagger-inflector:${swagger.inflector.version}</bundleDef>
-                                <bundleDef>org.wso2.orbit.io.swagger:swagger-inflector-oas3:${swagger.inflector.oas3.version}</bundleDef>
+                                <bundleDef>org.wso2.orbit.io.swagger:swagger-inflector-oas3-jdk21:${swagger.inflector.oas3.version}</bundleDef>
                                 <bundleDef>org.wso2.orbit.io.swagger:swagger-core</bundleDef>
                                 <bundleDef>io.swagger:swagger-models</bundleDef>
                                 <bundleDef>commons-io.wso2:commons-io</bundleDef>

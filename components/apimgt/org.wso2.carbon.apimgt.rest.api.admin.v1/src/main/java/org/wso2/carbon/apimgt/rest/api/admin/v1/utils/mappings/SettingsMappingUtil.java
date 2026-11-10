@@ -24,6 +24,7 @@ import org.wso2.carbon.apimgt.api.APIDefinition;
 import org.wso2.carbon.apimgt.api.APIManagementException;
 import org.wso2.carbon.apimgt.api.model.*;
 import org.wso2.carbon.apimgt.impl.APIConstants;
+import org.wso2.carbon.apimgt.impl.dto.PlatformGatewayConnectConfig;
 import org.wso2.carbon.apimgt.impl.internal.ServiceReferenceHolder;
 import org.wso2.carbon.apimgt.impl.utils.APIUtil;
 import org.wso2.carbon.apimgt.rest.api.admin.v1.dto.*;
@@ -62,7 +63,20 @@ public class SettingsMappingUtil {
         settingsDTO.setIsJWTEnabledForLoginTokens(APIUtil.isJWTEnabledForPortals());
         settingsDTO.setOrgAccessControlEnabled(APIUtil.isOrganizationAccessControlEnabled());
         settingsDTO.setIsGatewayNotificationEnabled(APIUtil.isGatewayNotificationEnabled());
+        settingsDTO.setPlatformGatewayVersions(resolvePlatformGatewayVersions());
+        settingsDTO.setConsumptionExportEnabled(
+                ServiceReferenceHolder.getInstance().getConsumptionDataExportService() != null);
         return settingsDTO;
+    }
+
+    private static List<String> resolvePlatformGatewayVersions() {
+        PlatformGatewayConnectConfig config = ServiceReferenceHolder.getInstance()
+                .getAPIManagerConfigurationService().getAPIManagerConfiguration().getPlatformGatewayConnectConfig();
+        if (config == null) {
+            return null;
+        }
+        List<String> versions = config.getPlatformGatewayVersions();
+        return versions.isEmpty() ? null : versions;
     }
 
     private List<SettingsKeyManagerConfigurationDTO> getSettingsKeyManagerConfigurationDTOList() {
@@ -76,7 +90,8 @@ public class SettingsMappingUtil {
                         keyManagerConfiguration.getDefaultConsumerKeyClaim(),
                         keyManagerConfiguration.getConnectionConfigurations(),
                         keyManagerConfiguration.getAuthConfigurations(),
-                        keyManagerConfiguration.getEndpointConfigurations()));
+                        keyManagerConfiguration.getEndpointConfigurations(),
+                        keyManagerConfiguration.getAvailableAppConfigConstraints()));
             }
         });
         return list;
@@ -102,7 +117,7 @@ public class SettingsMappingUtil {
     private static SettingsKeyManagerConfigurationDTO fromKeyManagerConfigurationToSettingsKeyManagerConfigurationDTO(
             String name, String displayName, String scopesClaim, String consumerKeyClaim,
             List<ConfigurationDto> connectionConfigurationDtoList, List<ConfigurationDto> authConfigurationDtoList,
-            List<ConfigurationDto> endpointConfigurations) {
+            List<ConfigurationDto> endpointConfigurations, List<ConstraintConfigDto> availableAppConfigConstraints) {
 
         SettingsKeyManagerConfigurationDTO settingsKeyManagerConfigurationDTO =
                 new SettingsKeyManagerConfigurationDTO();
@@ -154,6 +169,20 @@ public class SettingsMappingUtil {
                 keyManagerConfigurationDTO.setDefault(configurationDto.getDefaultValue());
                 keyManagerConfigurationDTO.setValues(configurationDto.getValues());
                 settingsKeyManagerConfigurationDTO.getEndpointConfigurations().add(keyManagerConfigurationDTO);
+            }
+        }
+        if (availableAppConfigConstraints != null) {
+            for (ConstraintConfigDto constraintConfig : availableAppConfigConstraints) {
+                ConfigurationConstraintDTO constraintDTO = new ConfigurationConstraintDTO();
+                constraintDTO.setName(constraintConfig.getName());
+                constraintDTO.setLabel(constraintConfig.getLabel());
+                constraintDTO.setType(constraintConfig.getType());
+                constraintDTO.setTooltip(constraintConfig.getTooltip());
+                constraintDTO.setMultiple(constraintConfig.isMultiple());
+                constraintDTO.setValues(constraintConfig.getValues());
+                constraintDTO.setDefault(constraintConfig.getDefaultConstraints());
+                constraintDTO.setConstraintType(constraintConfig.getConstraintType().toString());
+                settingsKeyManagerConfigurationDTO.getConfigurationConstraints().add(constraintDTO);
             }
         }
         return settingsKeyManagerConfigurationDTO;

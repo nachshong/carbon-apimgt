@@ -23,6 +23,7 @@
          <MaxTotal>{{apim.http_client.max_total}}</MaxTotal>
          <DefaultMaxPerRoute>{{apim.http_client.default_max_per_route}}</DefaultMaxPerRoute>
          <ConnectionTimeout>{{apim.http_client.connection_timeout}}</ConnectionTimeout>
+         <ConnectionRequestTimeout>{{apim.http_client.connection_request_timeout}}</ConnectionRequestTimeout>
      </HttpClient>
 
 
@@ -654,6 +655,7 @@
         <APIKeyKeystore>{{apim.devportal.api_key_keystore}}</APIKeyKeystore>
         <ApiKeyAlias>{{apim.devportal.api_key_alias}}</ApiKeyAlias>
         <ApiKeyGeneratorImpl>{{apim.devportal.api_key_generator_impl}}</ApiKeyGeneratorImpl>
+        <EnableLegacyApiKeys>{{apim.devportal.enable_legacy_api_keys}}</EnableLegacyApiKeys>
 
         <!--This parameter specifies whether Anonymous Mode is enabled. By default it is true.-->
         <EnableAnonymousMode>{{apim.devportal.enable_anonymous_mode}}</EnableAnonymousMode>
@@ -663,6 +665,7 @@
         <CreateDefaultApplication>{{apim.devportal.create_default_application}}</CreateDefaultApplication>
         {% endif %}
         <Mode>{{apim.devportal.mode}}</Mode>
+        <URLGenSecret>{{apim.devportal.url_generation_secret}}</URLGenSecret>
     </APIStore>
 
     <APIPublisher>
@@ -685,6 +688,27 @@
         <InternalKeyAlias>{{apim.publisher.key_alias}}</InternalKeyAlias>
         {% if apim.publisher.supported_document_types is defined %}
         <SupportedDocumentTypes>{{apim.publisher.supported_document_types}}</SupportedDocumentTypes>
+        {% endif %}
+        <!-- This parameter is used to enable/disable using legacy async api parser.-->
+        <PreserveLegacyAsyncParser>{{apim.publisher.use_legacy_async_parser}}</PreserveLegacyAsyncParser>
+        {% if apim.publisher.import_definition_file_size_limit is defined %}
+        <ImportDefinitionFileSizeLimit>
+            {% if apim.publisher.import_definition_file_size_limit.oas is defined %}
+            <OAS>{{apim.publisher.import_definition_file_size_limit.oas}}</OAS>
+            {% endif %}
+            {% if apim.publisher.import_definition_file_size_limit.async is defined %}
+            <ASYNC>{{apim.publisher.import_definition_file_size_limit.async}}</ASYNC>
+            {% endif %}
+            {% if apim.publisher.import_definition_file_size_limit.wsdl is defined %}
+            <WSDL>{{apim.publisher.import_definition_file_size_limit.wsdl}}</WSDL>
+            {% endif %}
+            {% if apim.publisher.import_definition_file_size_limit.graphql is defined %}
+            <GRAPHQL>{{apim.publisher.import_definition_file_size_limit.graphql}}</GRAPHQL>
+            {% endif %}
+            {% if apim.publisher.import_definition_file_size_limit.mcp is defined %}
+            <MCP>{{apim.publisher.import_definition_file_size_limit.mcp}}</MCP>
+            {% endif %}
+        </ImportDefinitionFileSizeLimit>
         {% endif %}
     </APIPublisher>
 
@@ -764,6 +788,10 @@
                 </AllowedURI>
             {% endfor %}
          {% endif %}
+            <AllowedURI>
+                <URI>/internal/gateway/.well-known</URI>
+                <HTTPMethods>GET,HEAD</HTTPMethods>
+            </AllowedURI>
              <AllowedURI>
                 <URI>/api/am/devportal/{version}/tenants</URI>
                 <HTTPMethods>GET,HEAD</HTTPMethods>
@@ -995,6 +1023,10 @@
             <AllowedURI>
                 <URI>/api/am/governance/{version}/swagger.json</URI>
                 <HTTPMethods>GET,HEAD</HTTPMethods>
+            </AllowedURI>
+            <AllowedURI>
+                <URI>/api/am/devportal/{version}/apis/{apiId}/generate-definition-url</URI>
+                <HTTPMethods>HEAD,POST</HTTPMethods>
             </AllowedURI>
         </AllowedURIs>
         <BasicAuthBlockedURIs>
@@ -1719,6 +1751,9 @@
         {% if apimgt.mutual_ssl.client_certificate_encode is defined %}
         <ClientCertificateEncode>{{apimgt.mutual_ssl.client_certificate_encode}}</ClientCertificateEncode>
         {% endif %}
+        {% if apimgt.mutual_ssl.forward_client_certificate_header is defined %}
+        <ForwardClientCertificateHeader>{{apimgt.mutual_ssl.forward_client_certificate_header}}</ForwardClientCertificateHeader>
+        {% endif %}
      </MutualSSL>
 
      <GlobalCacheInvalidation>
@@ -2043,6 +2078,12 @@
               {% endfor %}
           </EmbeddingProvider>
 
+          <LLMProvider type="{{apim.ai.llm_provider.type}}">
+              {% for key,value in apim.ai.llm_provider.properties.items() %}
+              <Property name="{{key}}">{{value}}</Property>
+              {% endfor %}
+          </LLMProvider>
+
           <VectorDBProvider type="{{apim.ai.vector_db_provider.type}}">
                 {% for key,value in apim.ai.vector_db_provider.properties.items() %}
                 <Property name="{{key}}">{{value}}</Property>
@@ -2076,6 +2117,27 @@
               <ExpireTimeSeconds>{{apim.gateway_notification.cleanup.expiry_time}}</ExpireTimeSeconds>
               <DataRetentionPeriodSeconds>{{apim.gateway_notification.cleanup.data_retention_period}}</DataRetentionPeriodSeconds>
           </GatewayCleanup>
+          {% if apim.platform_gateway.versions is defined and apim.platform_gateway.versions | length > 0 %}
+          <PlatformGatewayConnectConfiguration>
+              <PlatformGatewayVersions>
+              {% for version in apim.platform_gateway.versions %}
+                  <Version>{{ version }}</Version>
+              {% endfor %}
+              </PlatformGatewayVersions>
+          </PlatformGatewayConnectConfiguration>
+          {% endif %}
+          <APIKeyNotification>
+              <QueueSize>{{apim.gateway_notification.api_key_notification.queue_size}}</QueueSize>
+              <BatchSize>{{apim.gateway_notification.api_key_notification.batch_size}}</BatchSize>
+              <BatchIntervalMillis>{{apim.gateway_notification.api_key_notification.batch_interval}}</BatchIntervalMillis>
+              <MaxRetryCount>{{apim.gateway_notification.api_key_notification.max_retry_count}}</MaxRetryCount>
+              <RetryDuration>{{apim.gateway_notification.api_key_notification.retry_duration}}</RetryDuration>
+              <RetryProgressionFactor>{{apim.gateway_notification.api_key_notification.retry_progression_factor}}</RetryProgressionFactor>
+              <BatchProcessorMinThread>{{apim.gateway_notification.api_key_notification.batch_processor_min_thread}}</BatchProcessorMinThread>
+              <BatchProcessorMaxThread>{{apim.gateway_notification.api_key_notification.batch_processor_max_thread}}</BatchProcessorMaxThread>
+              <BatchProcessorKeepAlive>{{apim.gateway_notification.api_key_notification.batch_processor_keep_alive}}</BatchProcessorKeepAlive>
+              <BatchProcessorQueueSize>{{apim.gateway_notification.api_key_notification.batch_processor_queue_size}}</BatchProcessorQueueSize>
+          </APIKeyNotification>
       </GatewayNotificationConfiguration>
 
       <!-- SynapseArtifactGenerator thread pool configuration -->
@@ -2090,4 +2152,17 @@
 
       <EnableFailoverInLoadbalancedEndpoints>{{apim.endpoint_config.loadbalanced.enable_failover}}</EnableFailoverInLoadbalancedEndpoints>
       <EnableCertificateManagementEventListening>{{apim.certificate_manager.events_enabled}}</EnableCertificateManagementEventListening>
+
+      <AWSLambdaConnector>
+          <HttpClient>
+              <MaxConnections>{{apim.aws_lambda.http_client.max_connections}}</MaxConnections>
+              <ConnectionTimeout>{{apim.aws_lambda.http_client.connection_timeout}}</ConnectionTimeout>
+              <SocketTimeout>{{apim.aws_lambda.http_client.socket_timeout}}</SocketTimeout>
+              <ConnectionAcquisitionTimeout>{{apim.aws_lambda.http_client.connection_acquisition_timeout}}</ConnectionAcquisitionTimeout>
+          </HttpClient>
+      </AWSLambdaConnector>
+      
+      <Mediation>
+        <EnableSecureXMLProcessing>{{apim.mediation.enable_secure_xml_processing}}</EnableSecureXMLProcessing>
+      </Mediation>
 </APIManager>
